@@ -1,0 +1,4 @@
+ 3.6mm Lens
+ f = 179cm (distance from arena floor to the camera)
+
+ 20 mm each square in the chessboard

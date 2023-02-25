@@ -1,0 +1,40 @@
+# these coodinates are used to calculate the transform matrix
+# that aligns the 15Nov2021 experiments to the 16Jul2021 experiments
+#
+# the transform matrix is calculated according to
+# https://math.stackexchange.com/a/339033/59039
+# takes the first set of coords below to the second set of coords
+
+# 16Jul2021 square coords
+# x,y
+-65.7668,-63.1622
+64.2332,-63.1622
+64.2332,66.8378
+-65.7668,66.8378
+
+
+# 15Nov2021 (transformed!) square coords on the 16Jul2021 frame of reference
+# x,y
+-64.554,-64.5002
+64.4748,-58.217
+58.2131,73.5383
+-73.3724,63.3903
+
+# 12Aug2022 (transformed!) square coords on the 16Jul2021 frame of reference
+-66.1141,-66.9632
+63.4726,-57.7563
+58.1344,67.7369
+-72.5354,67.4275
+
+# 11Oct2022 (transformed!) square coords on the 16Jul2021 frame of reference
+-64.7215 , -64.6422
+65.3294  , -60.9284
+61.3837  , 68.5106 
+-67.5066 , 65.2611 
+
+
+
+
+
+
+
