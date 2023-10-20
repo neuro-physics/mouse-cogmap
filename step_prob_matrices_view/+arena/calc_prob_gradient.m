@@ -8,6 +8,9 @@ function [u,v] = calc_prob_gradient(sites,L,invert_y,normalize)
 % u(i) = p(k,i) - p(j,i), where p(i,j) is the probability of going from j to i, and k and j are the right and left neighbors, respectively
 % v(i) = p(k,i) - p(j,i), where k and j are the top and bottom neighbors, respectively
 %
+    if (nargin < 2) || isempty(L)
+        L = [];
+    end
     if (nargin < 3) || isempty(invert_y)
         invert_y = false;
     end

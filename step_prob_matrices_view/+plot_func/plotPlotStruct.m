@@ -139,8 +139,8 @@ function [fh,axh,lh] = plotPlotStruct(axh, pStruct, lineSet, widthSet, symbolSet
     if isempty(yld)
         yld = zeros(1,3);
     end
-    set(xlh, 'Position', xlp + xld);
-    set(ylh, 'Position', ylp + yld);
+    %set(xlh, 'Position', xlp + xld);
+    %set(ylh, 'Position', ylp + yld);
     set(axh, 'XScale', pStruct.xScale, 'YScale', pStruct.yScale);
     if isfield(pStruct, 'title')
         if ~isempty(pStruct.title)

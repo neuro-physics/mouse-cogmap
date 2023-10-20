@@ -1,4 +1,4 @@
-function [v,v_unit,v_norm,v_norm_std,r0] = calc_mouse_estimate_vector(sites,simParam,nbootstrap_samples,rescale_to_target_distance,start_site,target_site)
+function [v,v_unit,v_norm,v_norm_std,r0] = calc_mouse_estimate_vector(sites,simParam,nbootstrap_samples,rescale_to_target_distance,start_site,target_site,calc_significant_path_args)
 % calculates the estimate of food position given by the sites step probability lattice struct
 % the mouse estimate v is anchored at the reference r0 (i.e., r0 is the home position, or starting point)
 %
@@ -22,7 +22,29 @@ function [v,v_unit,v_norm,v_norm_std,r0] = calc_mouse_estimate_vector(sites,simP
     if (nargin < 6) || isempty(target_site)
         target_site = simParam.food_site;
     end
+    if (nargin < 7) || isempty(calc_significant_path_args)
+        calc_significant_path_args = {};
+    end
+
+    if ~isempty(calc_significant_path_args)
+        disp(' *** TEV of the significant path');
+    end
     
+    if iscell(sites) && isempty(calc_significant_path_args)
+        v          = cell(size(sites));
+        v_unit     = cell(size(sites));
+        v_norm     = cell(size(sites));
+        v_norm_std = cell(size(sites));
+        r0         = cell(size(sites));
+        for k = 1:numel(sites)
+            [v{k},v_unit{k},v_norm{k},v_norm_std{k},r0{k}] = calc_mouse_estimate_vector_internal(sites{k},simParam,nbootstrap_samples,rescale_to_target_distance,start_site,target_site,calc_significant_path_args);
+        end
+    else
+        [v,v_unit,v_norm,v_norm_std,r0] = calc_mouse_estimate_vector_internal(sites,simParam,nbootstrap_samples,rescale_to_target_distance,start_site,target_site,calc_significant_path_args);
+    end
+end
+
+function [v,v_unit,v_norm,v_norm_std,r0] = calc_mouse_estimate_vector_internal(sites,simParam,nbootstrap_samples,rescale_to_target_distance,start_site,target_site,calc_significant_path_args)
     L         = simParam.L(1);
     max_steps = 4.*(L.^2-L); % max number of steps in the lattice, hence max total displacement
     
@@ -55,7 +77,12 @@ function [v,v_unit,v_norm,v_norm_std,r0] = calc_mouse_estimate_vector(sites,simP
     
     % calculating the gradient vector in each lattice site
     % this is the "step vector" since each gradient vector tells the max probability of stepping out of a lattice site
-    G            = arena.calc_prob_gradient_with_positions(sites,simParam.L,true);
+    if isempty(calc_significant_path_args)
+        G            = arena.calc_prob_gradient_with_positions(sites,simParam.L,true);
+    else
+        [G,k_significant]   = arena.calc_significant_path(sites,calc_significant_path_args{:});
+        G(~k_significant,:) = 0;
+    end
     
     % calculating the total displacement
     summed_steps = calc_percent_displacement(G);
@@ -75,5 +102,8 @@ function [v,v_unit,v_norm,v_norm_std,r0] = calc_mouse_estimate_vector(sites,simP
     v = v_unit .* rescale_factor;
     
     % bootstrap estimate of the norm of v
-    v_norm_std = std(calc_displacement_norm(bootstrap_displacement(nbootstrap_samples,G))); % we take stddev over a bootstrap sample of the step vectors
+    v_norm_std = 0;
+    if nbootstrap_samples > 0
+        v_norm_std = std(calc_displacement_norm(bootstrap_displacement(nbootstrap_samples,G))); % we take stddev over a bootstrap sample of the step vectors
+    end
 end

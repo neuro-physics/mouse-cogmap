@@ -11,17 +11,19 @@
 # extracted from the excel files...
 
 #from re import L
-import numpy
-import functools
-import itertools
 import os # path and file handling
+import numpy
 import pandas # load excel and data files
 import networkx
+import warnings
+import functools
+import itertools
 import scipy.io
-import scipy.interpolate
+import scipy.stats
 import scipy.sparse
 import scipy.spatial
 import scipy.optimize
+import scipy.interpolate
 import modules.io as io
 import modules.traj_analysis as tran
 import modules.helper_func_class as misc
@@ -31,29 +33,34 @@ import modules.process_mouse_trials_lib as plib
 
 #warnings.filterwarnings('error')
 
-def get_step_probability_file_struct(param_struct,P,N,G,stage_trials,n_trials,r_target,r_mouse,t_to_food,mouse_id,trial_id,P_specific,mouse_id_spec,r_target_trial,r_target_previous_trial):
+def get_step_probability_file_struct(param_struct,P,N,G,stage_trials,n_trials,r_target,r_mouse,t_to_food,mouse_id,trial_id,P_specific,mouse_id_spec,r_target_trial,r_target_previous_trial,r_target_alt_trial,r_target_rev_trial,r_target_revalt_trial,arena_geometry):
     """
     returns a misc.structtype data structure with the simulation data resulting from calc_probability_step function
     """
     param_help = calc_step_probability(get_help=True)
     param_struct.KeepFields(*get_calc_step_probability_param_struct().keys())
+    io.save_step_probability_file_struct
     return misc.structtype(**param_struct,
-                             P                       = io.list_of_arr_to_arr_of_obj(P),
-                             N                       = io.list_of_arr_to_arr_of_obj(N),
-                             G                       = io.list_of_arr_to_arr_of_obj(G),
-                             P_specific              = io.list_of_arr_to_arr_of_obj(P_specific),
-                             mouse_id_spec           = io.list_of_arr_to_arr_of_obj(mouse_id_spec),
-                             stage_trials            = io.list_of_arr_to_arr_of_obj(stage_trials),
-                             r_mouse                 = io.list_of_arr_to_arr_of_obj(r_mouse),
-                             t_to_food               = io.list_of_arr_to_arr_of_obj(t_to_food),
-                             mouse_id                = io.list_of_arr_to_arr_of_obj(mouse_id),
-                             trial_id                = io.list_of_arr_to_arr_of_obj(trial_id),
-                             n_trials                = n_trials,
-                             r_target                = r_target,
-                             r_target_trial          = io.list_of_arr_to_arr_of_obj(r_target_trial),
-                             r_target_previous_trial = io.list_of_arr_to_arr_of_obj(r_target_previous_trial),
-                             L                       = int(numpy.sqrt(P[0].shape[0])),
-                             help_param_definition   = param_help)
+                             P                       = io.list_of_arr_to_arr_of_obj(P             )          ,
+                             N                       = io.list_of_arr_to_arr_of_obj(N             )          ,
+                             G                       = io.list_of_arr_to_arr_of_obj(G             )          ,
+                             P_specific              = io.list_of_arr_to_arr_of_obj(P_specific    )          ,
+                             mouse_id_spec           = io.list_of_arr_to_arr_of_obj(mouse_id_spec )          ,
+                             stage_trials            = io.list_of_arr_to_arr_of_obj(stage_trials  )          ,
+                             r_mouse                 = io.list_of_arr_to_arr_of_obj(r_mouse       )          ,
+                             t_to_food               = io.list_of_arr_to_arr_of_obj(t_to_food     )          ,
+                             mouse_id                = io.list_of_arr_to_arr_of_obj(mouse_id      )          ,
+                             trial_id                = io.list_of_arr_to_arr_of_obj(trial_id      )          ,
+                             n_trials                = n_trials                                              ,
+                             r_target                = r_target                                              ,
+                             r_target_trial          = io.list_of_arr_to_arr_of_obj(r_target_trial         ) ,
+                             r_target_alt_trial      = io.list_of_arr_to_arr_of_obj(r_target_alt_trial     ) ,
+                             r_target_rev_trial      = io.list_of_arr_to_arr_of_obj(r_target_rev_trial     ) ,
+                             r_target_revalt_trial   = io.list_of_arr_to_arr_of_obj(r_target_revalt_trial  ) ,
+                             r_target_previous_trial = io.list_of_arr_to_arr_of_obj(r_target_previous_trial) ,
+                             L                       = int(numpy.sqrt(P[0].shape[0]))                        ,
+                             arena_geometry          = arena_geometry                                        ,
+                             help_param_definition   = param_help                                            )
 
 def get_step_prob_input_param_config_list(**params):
     """
@@ -69,52 +76,54 @@ def get_step_prob_input_param_config_list(**params):
     config = [ get_calc_step_probability_param_struct(**{ n:v for n,v in zip(param_names,val_combination) }) for val_combination in param_values ]
     return config
 
-def get_calc_step_probability_param_struct(mouse_part=None,n_stages=None,L_lattice=None,prob_calc=None,start_from_zero=None,use_extra_trials=None,stop_at_food=None,use_latest_target=False,align_method='entrance'):
+def get_calc_step_probability_param_struct(mouse_part=None,n_stages=None,L_lattice=None,prob_calc=None,start_from_zero=None,use_extra_trials=None,stop_at_food=None,use_latest_target=False,align_method='entrance',use_reverse_target=False):
     """
     returns a misc.structtype with the following fields:
-        mouse_part        -> 'nose', 'center', 'tail' (the tracked mouse part to use in this calculation)
-        n_stages          -> number of stages to divide the training data
-                                there's 14 training sessions (or 16, if use_extra_trials is set),
-                                which will be split into n_stages training sessions to enhance statistics...
-                                for instance, if n_stages = 4,
-                                then the training sessions 1..14 will be split into
-                                4 probability matrices, one for each learning stage:
-                                [1,2,3,4], [5,6,7,8], [9,10,11,12], [13,14]
-                                   P1,        P2,        P3,         P4
-        L_lattice         -> number of squares in each row and each column of the overlaid square grid
-        start_from_zero   -> this only works if prob_calc == 'cumulative_prob'
-                             if True, then the initial probability (before any walk) is assumed P0 = 0 for all steps
-                             otherwise, we use P0 = 1/4 for all steps (the boundary steps will be normalized accordingly)
-        prob_calc         -> ProbabilityType enum object to specify one of the methods below:
-                            'cumulative_step':
-                                the probability of stage k is calculated by summing all the step for a given grid crossing up to stage k,
-                                and then dividing by the total amount of grid crossings in all the stages up to k:
-                                Pk_ij = [ N(k-1)_ij + Nk_ij ] / sum(N(k-1) + Nk), with N0 = 0 for all steps
-                            'cumultive_prob':
-                                the probability of stage k is calculated by the union of
-                                taking that step in stage k-1 and taking the same step at stage k alone
-                                (and these two events are not independent):
-                                Pk_ij = [ P(k-1)_ij + pk_ij - P(k-1)_ij*pk_ij ], with pk_ij=Nk_ij/sum(Nk) being the step probability of stage k alone
-                            'independent':
-                                each learning stage is calculated independently of the previous stages
-                                yielding pk_ij for each stage k
-                                then, the Pk_ij = P0_ij + pk_ij - P0_ij*pk_ij to take into account the probability to walk on the other grid squares
-        use_extra_trials  -> if True, we also use trials 16 and 17 as training sessions (skip trial 15 because it is right after the probe session)
-        stop_at_food      -> stop counting steps when the mouse reaches the food for the 1st time
-        align_method      -> defines how tracks are aligned; must be one of 'none','entrance','target','target_trial_consistent'
-        use_latest_target -> if stop_at_food, stops at the latest target between track.r_target and track.r_target_alt (useful for 2 targets probe trial)
+        mouse_part         -> 'nose', 'center', 'tail' (the tracked mouse part to use in this calculation)
+        n_stages           -> number of stages to divide the training data
+                                 there's 14 training sessions (or 16, if use_extra_trials is set),
+                                 which will be split into n_stages training sessions to enhance statistics...
+                                 for instance, if n_stages = 4,
+                                 then the training sessions 1..14 will be split into
+                                 4 probability matrices, one for each learning stage:
+                                 [1,2,3,4], [5,6,7,8], [9,10,11,12], [13,14]
+                                    P1,        P2,        P3,         P4
+        L_lattice          -> number of squares in each row and each column of the overlaid square grid
+        start_from_zero    -> this only works if prob_calc == 'cumulative_prob'
+                              if True, then the initial probability (before any walk) is assumed P0 = 0 for all steps
+                              otherwise, we use P0 = 1/4 for all steps (the boundary steps will be normalized accordingly)
+        prob_calc          -> ProbabilityType enum object to specify one of the methods below:
+                             'cumulative_step':
+                                 the probability of stage k is calculated by summing all the step for a given grid crossing up to stage k,
+                                 and then dividing by the total amount of grid crossings in all the stages up to k:
+                                 Pk_ij = [ N(k-1)_ij + Nk_ij ] / sum(N(k-1) + Nk), with N0 = 0 for all steps
+                             'cumultive_prob':
+                                 the probability of stage k is calculated by the union of
+                                 taking that step in stage k-1 and taking the same step at stage k alone
+                                 (and these two events are not independent):
+                                 Pk_ij = [ P(k-1)_ij + pk_ij - P(k-1)_ij*pk_ij ], with pk_ij=Nk_ij/sum(Nk) being the step probability of stage k alone
+                             'independent':
+                                 each learning stage is calculated independently of the previous stages
+                                 yielding pk_ij for each stage k
+                                 then, the Pk_ij = P0_ij + pk_ij - P0_ij*pk_ij to take into account the probability to walk on the other grid squares
+        use_extra_trials   -> if True, we also use trials 16 and 17 as training sessions (skip trial 15 because it is right after the probe session)
+        stop_at_food       -> stop counting steps when the mouse reaches the food for the 1st time
+        align_method       -> defines how tracks are aligned; must be one of 'none','entrance','target','target_trial_consistent'
+        use_latest_target  -> if stop_at_food, stops at the latest target between track.r_target and track.r_target_alt (useful for 2 targets probe trial)
+        use_reverse_target -> if stop_at_food, then stops with min distance to othe reverse target location
     """
     align_method = align_method.lower()
     assert align_method in ['none','entrance','target','target_trial_consistent'],"align_method must be one of 'none','entrance','target','target_trial_consistent'"
-    return misc.structtype(mouse_part        =  mouse_part        ,
-                           n_stages          =  n_stages          ,
-                           L_lattice         =  L_lattice         ,
-                           prob_calc         =  prob_calc         ,
-                           start_from_zero   =  start_from_zero   ,
-                           use_extra_trials  =  use_extra_trials  ,
-                           stop_at_food      =  stop_at_food      ,
-                           align_method      =  align_method      ,
-                           use_latest_target =  use_latest_target )
+    return misc.structtype(mouse_part         =  mouse_part        ,
+                           n_stages           =  n_stages          ,
+                           L_lattice          =  L_lattice         ,
+                           prob_calc          =  prob_calc         ,
+                           start_from_zero    =  start_from_zero   ,
+                           use_extra_trials   =  use_extra_trials  ,
+                           stop_at_food       =  stop_at_food      ,
+                           align_method       =  align_method      ,
+                           use_latest_target  =  use_latest_target ,
+                           use_reverse_target =  use_reverse_target)
 
 def calc_step_probability(mouse_dir=None,param_struct=None,get_help=False,tracks=None,return_as_file_struct=False):
     param_help = """
@@ -128,37 +137,38 @@ def calc_step_probability(mouse_dir=None,param_struct=None,get_help=False,tracks
 
     param_struct ( returned by get_step_prob_input_param_config_list );
         is a misc.structtype with the following fields:
-        mouse_part        -> 'nose', 'center', 'tail' (the tracked mouse part to use in this calculation)
-        n_stages          -> number of stages to divide the training data
-                                there's 14 training sessions (or 16, if use_extra_trials is set),
-                                which will be split into n_stages training sessions to enhance statistics...
-                                for instance, if n_stages = 4,
-                                then the training sessions 1..14 will be split into
-                                4 probability matrices, one for each learning stage:
-                                [1,2,3,4], [5,6,7,8], [9,10,11,12], [13,14]
-                                   P1,        P2,        P3,         P4
-        L_lattice         -> number of squares in each row and each column of the overlaid square grid
-        start_from_zero   -> this only works if prob_calc == 'cumulative_prob'
-                             if True, then the initial probability (before any walk) is assumed P0 = 0 for all steps
-                             otherwise, we use P0 = 1/4 for all steps (the boundary steps will be normalized accordingly)
-        prob_calc         -> ProbabilityType enum object to specify one of the methods below:
-                            'cumulative_step':
-                                the probability of stage k is calculated by summing all the step for a given grid crossing up to stage k,
-                                and then dividing by the total amount of grid crossings in all the stages up to k:
-                                Pk_ij = [ N(k-1)_ij + Nk_ij ] / sum(N(k-1) + Nk), with N0 = 0 for all steps
-                            'cumultive_prob':
-                                the probability of stage k is calculated by the union of
-                                taking that step in stage k-1 and taking the same step at stage k alone
-                                (and these two events are not independent):
-                                Pk_ij = [ P(k-1)_ij + pk_ij - P(k-1)_ij*pk_ij ], with pk_ij=Nk_ij/sum(Nk) being the step probability of stage k alone
-                            'independent':
-                                each learning stage is calculated independently of the previous stages
-                                yielding pk_ij for each stage k
-                                then, the Pk_ij = P0_ij + pk_ij - P0_ij*pk_ij to take into account the probability to walk on the other grid squares
-        use_extra_trials  -> if True, we also use trials 16 and 17 as training sessions (skip trial 15 because it is right after the probe session)
-        stop_at_food      -> stop counting steps when the mouse reaches the food for the 1st time
-        align_method      -> defines how tracks are aligned; must be one of 'none','entrance','target','target_trial_consistent'
-        use_latest_target -> if stop_at_food, stops at the latest target between track.r_target and track.r_target_alt (useful for 2 targets probe trial)
+        mouse_part         -> 'nose', 'center', 'tail' (the tracked mouse part to use in this calculation)
+        n_stages           -> number of stages to divide the training data
+                                 there's 14 training sessions (or 16, if use_extra_trials is set),
+                                 which will be split into n_stages training sessions to enhance statistics...
+                                 for instance, if n_stages = 4,
+                                 then the training sessions 1..14 will be split into
+                                 4 probability matrices, one for each learning stage:
+                                 [1,2,3,4], [5,6,7,8], [9,10,11,12], [13,14]
+                                    P1,        P2,        P3,         P4
+        L_lattice          -> number of squares in each row and each column of the overlaid square grid
+        start_from_zero    -> this only works if prob_calc == 'cumulative_prob'
+                              if True, then the initial probability (before any walk) is assumed P0 = 0 for all steps
+                              otherwise, we use P0 = 1/4 for all steps (the boundary steps will be normalized accordingly)
+        prob_calc          -> ProbabilityType enum object to specify one of the methods below:
+                             'cumulative_step':
+                                 the probability of stage k is calculated by summing all the step for a given grid crossing up to stage k,
+                                 and then dividing by the total amount of grid crossings in all the stages up to k:
+                                 Pk_ij = [ N(k-1)_ij + Nk_ij ] / sum(N(k-1) + Nk), with N0 = 0 for all steps
+                             'cumultive_prob':
+                                 the probability of stage k is calculated by the union of
+                                 taking that step in stage k-1 and taking the same step at stage k alone
+                                 (and these two events are not independent):
+                                 Pk_ij = [ P(k-1)_ij + pk_ij - P(k-1)_ij*pk_ij ], with pk_ij=Nk_ij/sum(Nk) being the step probability of stage k alone
+                             'independent':
+                                 each learning stage is calculated independently of the previous stages
+                                 yielding pk_ij for each stage k
+                                 then, the Pk_ij = P0_ij + pk_ij - P0_ij*pk_ij to take into account the probability to walk on the other grid squares
+        use_extra_trials   -> if True, we also use trials 16 and 17 as training sessions (skip trial 15 because it is right after the probe session)
+        stop_at_food       -> stop counting steps when the mouse reaches the food for the 1st time
+        align_method       -> defines how tracks are aligned; must be one of 'none','entrance','target','target_trial_consistent'
+        use_latest_target  -> if stop_at_food, stops at the latest target between track.r_target and track.r_target_alt (useful for 2 targets probe trial)
+        use_reverse_target -> if stop_at_food, then stops with min distance to othe reverse target location
 
     returns:
     *** all positions in lattice coords are 0-based indices
@@ -179,15 +189,16 @@ def calc_step_probability(mouse_dir=None,param_struct=None,get_help=False,tracks
     """
     if get_help:
         return param_help
-    mouse_part        =  param_struct.mouse_part.lower()
-    n_stages          =  param_struct.n_stages
-    L_lattice         =  param_struct.L_lattice
-    prob_calc         =  param_struct.prob_calc
-    start_from_zero   =  param_struct.start_from_zero
-    use_extra_trials  =  param_struct.use_extra_trials
-    stop_at_food      =  param_struct.stop_at_food
-    align_method      =  param_struct.align_method.lower()
-    use_latest_target =  param_struct.use_latest_target
+    mouse_part         =  param_struct.mouse_part.lower()
+    n_stages           =  param_struct.n_stages
+    L_lattice          =  param_struct.L_lattice
+    prob_calc          =  param_struct.prob_calc
+    start_from_zero    =  param_struct.start_from_zero
+    use_extra_trials   =  param_struct.use_extra_trials
+    stop_at_food       =  param_struct.stop_at_food
+    align_method       =  param_struct.align_method.lower()
+    use_latest_target  =  param_struct.use_latest_target
+    use_reverse_target =  param_struct.use_reverse_target
     if L_lattice%2 == 0:
         raise ValueError('L_lattice must be odd')
     #if not (prob_calc.lower() in ['cumulative_step','cumulative_prob','independent']):
@@ -206,7 +217,7 @@ def calc_step_probability(mouse_dir=None,param_struct=None,get_help=False,tracks
     # getting all input files
     if type(tracks) is type(None):
         tracks = io.load_trial_file(mouse_dir,load_only_training_sessions_relative_target=True,skip_15_relative_target=True,use_extra_trials_relative_target=use_extra_trials,fix_nan=False)
-    trial_n = numpy.asarray([ int(plib.trial_to_number(tr.trial)) for tr in tracks ])
+    trial_n = numpy.asarray([ plib.trial_to_number(tr.trial) for tr in tracks ])
     
     # now we need to align the entrance of all the files with the vector (0,1) (top of the screen)
     if align_method == 'entrance': # 'entrance' or 'target'
@@ -220,8 +231,8 @@ def calc_step_probability(mouse_dir=None,param_struct=None,get_help=False,tracks
             raise ValueError("param_struct.align_method can only be 'none','entrance','target','target_trial_consistent'")
 
     # setting some default parameters
-    n_mice             = len(pandas.unique([ int(tr.mouse_number) for tr in tracks ])) # couting total number of mice
-    T_arena_to_lattice = get_arena_to_lattice_transform(L_lattice)                     # getting the transform used to convert arena coordinates to lattice coordinates
+    n_mice             = len(pandas.unique([ int(tr.mouse_number) for tr in tracks ]))         # couting total number of mice
+    T_arena_to_lattice = [ get_arena_to_lattice_transform(L_lattice,r_center=tr.r_arena_center) for tr in tracks ]  # getting the transform used to convert arena coordinates to lattice coordinates
 
     # setting the stage-0 probabilities
     ij_adjmat = get_nonzero_rowcol_circsqrlatt(L_lattice)
@@ -247,6 +258,11 @@ def calc_step_probability(mouse_dir=None,param_struct=None,get_help=False,tracks
     mouse_id_spec           = [None for _ in stage_trials]
     r_target_trial          = [None for _ in stage_trials]
     r_target_previous_trial = [None for _ in stage_trials]
+    r_target_alt_trial      = [None for _ in stage_trials]
+    r_target_rev_trial      = [None for _ in stage_trials]
+    r_target_revalt_trial   = [None for _ in stage_trials]
+    arena_geometry          = [None for _ in stage_trials]
+    has_more_than_one_tgt_f = lambda r_tgt: numpy.unique(numpy.array(r_tgt),axis=0).shape[0] > 1
     for k,stage in enumerate(stage_trials):
         # first, we sum all the the number of steps and grid matrices for this stage
         # count_number_of_steps_in_lattice -> returns a tuple of N,G
@@ -261,17 +277,43 @@ def calc_step_probability(mouse_dir=None,param_struct=None,get_help=False,tracks
         # steps_in_lattice[trial][5] -> mouse number of this trial
         steps_in_lattice           = []
         r_target_trial[k]          = []
+        r_target_alt_trial[k]      = []
+        r_target_rev_trial[k]      = []
+        r_target_revalt_trial[k]   = []
         r_target_previous_trial[k] = []
-        for tr in tracks:
+        for tr,T in zip(tracks,T_arena_to_lattice):
             if plib.trial_to_number(tr.trial) in stage:
                 r_target = tr.r_target
                 if use_latest_target:
                     r_target = _pick_latest_target(tr)
-                steps_in_lattice.append( count_number_of_steps_in_lattice(tr.time,tr[mouse_part],L_lattice,r_center=tr.r_arena_center,r_target=r_target,stop_at_food=stop_at_food)+(plib.trial_to_number(tr.trial),int(tr.mouse_number)) )
-                r_target_trial[k].append(tr.r_target)
-        
+                elif use_reverse_target:
+                    r_target = tr.r_target_reverse
+                #  steps_in_lattice[k][0] -> scipy.sparse.csc_matrix(N) (adjacency step matrix)
+                #  steps_in_lattice[k][1] -> G (lattice grid)
+                #  steps_in_lattice[k][2] -> r_latt (position in the lattice)
+                #  steps_in_lattice[k][3] -> t_to_food (r_latt.shape[0] -> time to find food in steps)
+                #  steps_in_lattice[k][4] -> arena_geometry -> misc.structtype with arena parameters to check lattice and arena alignment
+                #  steps_in_lattice[k][5] -> trial id
+                #  steps_in_lattice[k][6] -> mouse number
+                steps_in_lattice.append(count_number_of_steps_in_lattice(tr.time,tr[mouse_part],L_lattice,r_center=tr.r_arena_center,r_target=r_target,stop_at_food=stop_at_food,return_arena_lattice_geometry=True)     +   (  plib.trial_to_number(tr.trial)  ,int(tr.mouse_number)  )      )
+                r_target_trial[k].append(       apply_arena_to_lattice_transform( T,     r_target             )  ) #tr.r_target)
+                r_target_alt_trial[k].append(   apply_arena_to_lattice_transform( T,  tr.r_target_alt         )  )
+                r_target_rev_trial[k].append(   apply_arena_to_lattice_transform( T,  tr.r_target_reverse     )  )
+                r_target_revalt_trial[k].append(apply_arena_to_lattice_transform( T,  tr.r_target_alt_reverse )  )
+
         # storing the target for each trial
-        r_target_trial[k]          = apply_arena_to_lattice_transform(T_arena_to_lattice, numpy.mean( numpy.array(r_target_trial[k]) ,axis=0) )
+        if has_more_than_one_tgt_f(r_target_trial[k]):
+            warnings.warn('  ****  MORE THAN 1 TARGET FOUND ****')
+        if has_more_than_one_tgt_f(r_target_alt_trial[k]):
+            warnings.warn('  ****  MORE THAN 1 TARGET ALT FOUND ****')
+        if has_more_than_one_tgt_f(r_target_rev_trial[k]):
+            warnings.warn('  ****  MORE THAN 1 TARGET REVERSE FOUND ****')
+        if has_more_than_one_tgt_f(r_target_revalt_trial[k]):
+            warnings.warn('  ****  MORE THAN 1 TARGET ALT REVERSE FOUND ****')
+        r_target_trial[k]          = scipy.stats.mode(numpy.floor( numpy.array(        r_target_trial[k])   ) , axis=0, nan_policy='omit').mode.flatten()     # numpy.floor(numpy.mean( numpy.array(        r_target_trial[k]) ,axis=0)) 
+        r_target_alt_trial[k]      = scipy.stats.mode(numpy.floor( numpy.array(    r_target_alt_trial[k])   ) , axis=0, nan_policy='omit').mode.flatten()     # numpy.floor(numpy.mean( numpy.array(    r_target_alt_trial[k]) ,axis=0)) 
+        r_target_rev_trial[k]      = scipy.stats.mode(numpy.floor( numpy.array(    r_target_rev_trial[k])   ) , axis=0, nan_policy='omit').mode.flatten()     # numpy.floor(numpy.mean( numpy.array(    r_target_rev_trial[k]) ,axis=0)) 
+        r_target_revalt_trial[k]   = scipy.stats.mode(numpy.floor( numpy.array( r_target_revalt_trial[k])   ) , axis=0, nan_policy='omit').mode.flatten()     # numpy.floor(numpy.mean( numpy.array( r_target_revalt_trial[k]) ,axis=0)) 
         r_target_previous_trial[k] = r_target_trial[k-1] if k > 0 else numpy.nan*numpy.ones(2)
 
         # old code of this function (working)
@@ -280,13 +322,15 @@ def calc_step_probability(mouse_dir=None,param_struct=None,get_help=False,tracks
         #N[k+1],G[k],r_mouse[k] = result #
         #G[k+1] = G[k] + G[k+1]
 
+        arena_geometry[k] = [ s[4] for s in steps_in_lattice ]
+
         # number of trials for this stage
         n_trials[k] = len(steps_in_lattice)
 
         # storing mouse and trial id for this stage
-        trial_id[k]      = numpy.asarray([ s[4] for s in steps_in_lattice ])
-        mouse_id[k]      = numpy.asarray([ s[5] for s in steps_in_lattice ])
-        mouse_id_spec[k] = numpy.unique(mouse_id[k])
+        trial_id[k]      = numpy.asarray([ s[5] for s in steps_in_lattice ])
+        mouse_id[k]      = numpy.asarray([ s[6] for s in steps_in_lattice ])
+        mouse_id_spec[k] = misc.unique_stable(mouse_id[k]) #numpy.unique(mouse_id[k])
 
         # total number of time steps the mouse takes to reach the food
         t_to_food[k] = numpy.asarray([ s[3] for s in steps_in_lattice ])
@@ -330,12 +374,12 @@ def calc_step_probability(mouse_dir=None,param_struct=None,get_help=False,tracks
     # averaged over all trials of this experiment
     # (only meaningful if the target is fixed over trials with all the tracks aligned --
     # this is not the case for random entrance experiments)
-    r_target = apply_arena_to_lattice_transform(T_arena_to_lattice, numpy.mean( numpy.stack( [tr.r_target for tr in tracks] ) ,axis=0) )
+    r_target = scipy.stats.mode(numpy.floor( numpy.stack( [   apply_arena_to_lattice_transform(T,tr.r_target ) for tr,T in zip(tracks,T_arena_to_lattice)  ] ) ) , axis=0, nan_policy='omit').mode.flatten()
 
     if return_as_file_struct:
-        return get_step_probability_file_struct(param_struct,P,N,G,stage_trials,n_trials,r_target,r_mouse,t_to_food,mouse_id,trial_id,P_specific,mouse_id_spec,r_target_trial,r_target_previous_trial)
+        return get_step_probability_file_struct(param_struct,P,N,G,stage_trials,n_trials,r_target,r_mouse,t_to_food,mouse_id,trial_id,P_specific,mouse_id_spec,r_target_trial,r_target_previous_trial,r_target_alt_trial,r_target_rev_trial,r_target_revalt_trial,arena_geometry)
     else:
-        return P,N,G,stage_trials,n_trials,r_target,r_mouse,t_to_food,mouse_id,trial_id,P_specific,mouse_id_spec,r_target_trial,r_target_previous_trial
+        return P,N,G,stage_trials,n_trials,r_target,r_mouse,t_to_food,mouse_id,trial_id,P_specific,mouse_id_spec,r_target_trial,r_target_previous_trial,r_target_alt_trial,r_target_rev_trial,r_target_revalt_trial,arena_geometry
 
 def calc_step_probability_matrix_cumuprob(pkm1,nk):
     """
@@ -395,7 +439,7 @@ def _pick_latest_target(track,hole_horizon=None):
         tind_inter = tran.find_first_intersection_index(track.r_nose,all_targets,time=track.time,hole_horizon=hole_horizon)
     return all_targets[numpy.argmax(tind_inter)]
 
-def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target=None,stop_at_food=False):
+def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target=None,stop_at_food=False,track=None,return_arena_lattice_geometry=False):
     """
     this function overlays a lattice of size LxL over the arena (centered at the center of the arena)
     then it counts the number of times the trajectory in r crossed from site j to site i of the lattice,
@@ -426,10 +470,14 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
     if L_lattice % 2 == 0:
         raise ValueError('L_lattice must be an odd scalar number')
     if (r_target is None) and stop_at_food:
-        raise ValueError('please input the r_target because stop_at_food is set')
+        if misc.exists(track):
+            r_target = track.r_target
+        else:
+            raise ValueError('please input the r_target because stop_at_food is set')
 
     # we first define the transformation of coordinates from the arena to the lattice
-    T = get_arena_to_lattice_transform(L_lattice,r_center=r_center)
+    r_center            = r_center if misc.exists(r_center) else (track.r_arena_center if misc.exists(track) else plib.get_arena_center(track))
+    T,arena_dx,arena_dy = get_arena_to_lattice_transform(L_lattice,r_center=r_center,return_arena_limits=True)
 
     # transforming the target
     r_target = numpy.asarray(r_target) if stop_at_food else numpy.array((0,0))
@@ -439,13 +487,13 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
 
     # we need to remove from r_latt the rows that correspond to time steps where the mouse was lost by the camera
     # these time points will be interpolated in the while-loop below
-    t_nan,_ = numpy.nonzero(numpy.isnan(r))
-    t_nan = numpy.unique(t_nan)
+    t_nan,_  = numpy.nonzero(numpy.isnan(r))
+    t_nan    = numpy.unique(t_nan)
     t_points = numpy.delete(t_points,t_nan)
-    r = numpy.delete(r,t_nan,axis=0)
+    r        = numpy.delete(r,t_nan,axis=0)
 
     # then we simply calculate the position in the lattice indices
-    r_latt = apply_arena_to_lattice_transform(T,r) # these are the adjacency matrix indices
+    r_latt        = apply_arena_to_lattice_transform(T,r) # these are the adjacency matrix indices
                                            # all r_latt indices are guaranteed to be within (0,L_lattice-1) because we added the arena offset of 2cm
     r_target_latt = apply_arena_to_lattice_transform(T,r_target)
 
@@ -463,7 +511,7 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
     # and count 1 in the adjacency matrix if they are adjacent
     # or interpolate between them if they are not adjacent
     # first we define the interpolation and its parameters
-    interpolate_r = scipy.interpolate.interp1d(t_points,r,kind='linear',axis=0,copy=False)
+    interpolate_r  = scipy.interpolate.interp1d(t_points,r,kind='linear',axis=0,copy=False)
     n_interp_steps = 10 # number of time points to insert between two steps that did not happen between adjacent squares
     #t_insertion = -1 # time step where the interpolation happens
     #counter_insertion = 0 # counts how many times we interpolated in a given time step
@@ -472,8 +520,8 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
     # since the spline is continuous, and the grid is sequential, the algorithm is guaranteed to converge
 
     # then we define some helper functions
-    is_adjacent = lambda r1,r2: ( (abs(r2[0] - r1[0]) == 1) and (abs(r2[1] - r1[1]) == 0) ) ^ ((abs(r2[1] - r1[1]) == 1) and (abs(r2[0] - r1[0]) == 0) )# ^ -> bitwise XOR: i.e., either we are displaced horizontally or vertically, but not both
-    is_diagonal = lambda r1,r2: (abs(r2[0] - r1[0]) == 1) and (abs(r2[1] - r1[1]) == 1)
+    is_adjacent    = lambda r1,r2: ( (abs(r2[0] - r1[0]) == 1) and (abs(r2[1] - r1[1]) == 0) ) ^ ((abs(r2[1] - r1[1]) == 1) and (abs(r2[0] - r1[0]) == 0) )# ^ -> bitwise XOR: i.e., either we are displaced horizontally or vertically, but not both
+    is_diagonal    = lambda r1,r2: (abs(r2[0] - r1[0]) == 1) and (abs(r2[1] - r1[1]) == 1)
     is_same_square = lambda r1,r2: numpy.all(r1==r2) #(r1[0] == r2[0]) and (r1[1] == r2[1])
     get_linear_ind = lambda yy,xx: yy+xx*L_lattice
 
@@ -485,12 +533,12 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
     #d_to_target = numpy.inf
     # we want to minimize the distance to the target
     #hole_dist = get_mean_min_hole_dist()
-    t_ind = numpy.argmin(numpy.linalg.norm(r-r_target,axis=1))
-    t_min = t_points[t_ind]
+    t_ind     = numpy.argmin(numpy.linalg.norm(r-r_target,axis=1))
+    t_min     = t_points[t_ind]
     t_to_food = 0
 
     # here, the magic happens
-    t = 1 # we want to start checking from the second time step (0-based)
+    t      = 1 # we want to start checking from the second time step (0-based)
     tTotal = r_latt.shape[0]
     while t < tTotal:
         if is_same_square( r_latt[t,:], r_latt[t-1,:] ):
@@ -528,8 +576,8 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
         
         # getting row (y) and col (x) in the square lattice (y coord is the row index, x is the col index)
         # from this site and the previous one
-        x,y   = r_latt[t,:] #get_row_col(r_latt[t,:])
-        x0,y0 = r_latt[t-1,:] #get_row_col(r_latt[t-1,:])
+        x,y   = r_latt[t,:].astype(int) #get_row_col(r_latt[t,:])
+        x0,y0 = r_latt[t-1,:].astype(int) #get_row_col(r_latt[t-1,:])
 
         # for debugging purposes
         #if (x==x0) and (y==y0):
@@ -541,7 +589,7 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
         # counting one for a visit in this square
         G[y,x] += 1.0
 
-        # couting 1 for a step from site j to site i
+        # counting 1 for a step from site j to site i
         N[i,j] += 1.0
 
         if t_points[t] <= t_min:
@@ -555,7 +603,11 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
         t_to_food = r_latt.shape[0]
     else:
         r_latt = remove_consecutive_duplicate_rows(r_latt)
-    return scipy.sparse.csc_matrix(N),G,r_latt,t_to_food
+    if return_arena_lattice_geometry:
+        arena_geometry = misc.structtype(r_center=r_center,arena_radius=plib.get_arena_diameter_cm()/2.0,lattice_extent=misc.flatten_list([arena_dx,numpy.flip(arena_dy)],return_list=True))
+        return scipy.sparse.csc_matrix(N),G,r_latt,t_to_food,arena_geometry
+    else:
+        return scipy.sparse.csc_matrix(N),G,r_latt,t_to_food
 
 def append_position(r,r_new):
     if not numpy.all(r[-1]==r_new):
@@ -572,13 +624,22 @@ def remove_consecutive_duplicate_rows(r):
     return r[s] # returning only those elements that are not equal to their consecutive ones
 
 def apply_arena_to_lattice_transform(T,r):
-    return numpy.floor(T(r)).astype(int)
+    return numpy.floor(T(r))#.astype(int)
 
-def get_arena_to_lattice_transform(L,r_center=None):
+#def _get_int_or_nan(r):
+#    if numpy.any(numpy.isnan(r)):
+#        return r
+#    else:
+#        return r.astype(int)
+
+def get_arena_to_lattice_transform(L,r_center=None,return_arena_limits=False):
     X_arena_lim, Y_arena_lim = plib.get_arena_grid_limits(r_center=r_center)
     X_lattice_lim = (0,L-0.00001) # -0.00001 because python is 0-based index
     Y_lattice_lim = (0,L-0.00001) # -0.00001 because python is 0-based index
-    return misc.LinearTransf2D( X_arena_lim, X_lattice_lim, Y_arena_lim, Y_lattice_lim )
+    result = misc.LinearTransf2D( X_arena_lim, X_lattice_lim, Y_arena_lim, Y_lattice_lim )
+    if return_arena_limits:
+        result = (result, X_arena_lim, Y_arena_lim)
+    return result
 
 def get_circular_grid_graph(L):
     r = get_circular_grid_radius(L)

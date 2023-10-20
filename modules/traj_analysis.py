@@ -579,21 +579,137 @@ def calc_number_checked_holes_per_dist(track,hole_horizon,threshold_method='ampv
         else:
             return float(t_holes.size)/calc_traveled_dist(track)
 
-def calc_dist_checked_holes_target(track,hole_horizon,threshold_method='ampv',gamma=0.2,return_pos_from='hole',
+def calc_number_of_checks_entropy(track,return_error_estimate=False,**n_checks_histogram_args):
+    """
+    calls calc_number_of_checks_histogram_tracks to generate a normalized histogram
+    then calculates the -sum(P*log(P)) on the generated histogram
+
+    entropy error estimated according to the formulas derived in
+    MS Roulston (1999): Estimating the errors on measured entropy and mutual information. Physica D 125: 285-294. https://doi.org/10.1016/S0167-2789(98)00269-3.
+    (eqs 39 and 40)
+
+    returns
+        - entropy
+        - entropy stddev (if return_error_estimate == True)
+        - entropy max bias (if return_error_estimate == True; true entropy = entropy + max bias; if my interpretation of Roulston's is correct)
+    """
+    n_checks_histogram_args              = misc._get_kwargs(n_checks_histogram_args,normalize=True)
+    n_checks_histogram_args['normalize'] = True
+    dist             = calc_number_of_checks_histogram_tracks(track,**n_checks_histogram_args)
+    log_c            = lambda xx: numpy.array([numpy.log(x) if x>0.0 else 0.0 for x in xx]) # corrected log to avoid inf
+    calc_entropy_obs = lambda P: -numpy.sum(P * numpy.log(P)) # H_obs in Roulston paper
+    B_star           = lambda P: numpy.nonzero(P>0)[0].size   # number of nonzero probability states (B* in Roulston paper)
+    stddev_entropy   = lambda N,P,S: numpy.sqrt((1.0/N) * numpy.sum( ((log_c(P) + S)**2)*P*(1-P) ) ) # eq (40) in Roulston stddev of entropy sigma_H
+    if type(dist) is list:
+        N         = [ len(tr) for tr in track ] # track is a list of lists -- N is the number of mice in each trial
+        S         = numpy.array([ calc_entropy_obs(d.P[d.P>0]) for d in dist ])
+        S_std     = numpy.array([ stddev_entropy(n,d.P,s) for n,d,s in zip(N,dist,S) ])
+        S_maxbias = numpy.array([(B_star(d.P)-1)/(2.0*n) for d,n in zip(dist,N)]) + S_std
+    else:
+        N         = len(track)
+        S         = calc_entropy_obs(dist.P[dist.P>0])
+        S_std     = stddev_entropy(N,dist.P,S)
+        S_maxbias = ((B_star(dist.P)-1)/(2.0*N)) + S_std
+    result = S
+    if return_error_estimate:
+        result = (S,S_std,S_maxbias)
+    return result
+
+
+def calc_number_of_checks_histogram_tracks(track,d_checks_threshold=20.0,less_than_threshold=True,normalize=True,hole_horizon=3.0,**args_for_calc_dist_func):
+    """
+    number of checks that happened within a radius of d_checks_threshold of the reference point (usually the target, or the TEV-target)
+    that led to the target
+
+    if track is a list of trackfile:
+        track[i] -> data for mouse i; all mice within the same trial
+    if track is a list of lists:
+        track[j][i] -> mouse i in trial j
+    this function will try and sort track list of lists to have the above structure
+
+    The d_checks (distance of the checks towards the target) are calculated by calc_dist_checked_holes_target
+    d_checks           -> list of numpy array; only used if track is None
+                          d_checks[i] -> array containing all distances of hole checks from mouse i
+                                         the distance is calculated outside this function, and is relative to a reference point
+                                         (usually the target, or the TEV-target)
+                              i.e., d_checks[i][j] == 0.0 means that the hole check j of mouse i happened exactly at the reference point (e.g., target)
+
+    main input is either track or d_checks
+    track              -> (list of) input track files
+    hole_horizon       -> (cm) distance around each hole within which a hole check is captured (refer to calc_dist_checked_holes_target)
+    d_checks_threshold -> (cm) distance threshold starting from the reference point where the data will be cutoff
+
+    all other arguments are forwarded to the function calc_dist_checked_holes_target to calculate d_checks
+
+    returns structtype s with fields s.n and s.P as a misc.structtype
+            s.n -> number of hole checks within d_checks_threshold of the reference (target)
+            s.P -> number of times the food was found with n checks within a radius of d_checks_threshold from the target
+        if track is a list of lists, then returns a list of structtypes (one for each item in track list)
+    """
+    if misc.is_list_of_list(track):
+        track = io.group_track_list(track, group_by='trial',return_group_keys=False) # track[j][i] -> mouse i of trial j
+        return [ calc_number_of_checks_histogram_tracks(tr,d_checks_threshold=d_checks_threshold,less_than_threshold=less_than_threshold,normalize=normalize,hole_horizon=hole_horizon,**args_for_calc_dist_func) for tr in track ]
+
+    d_checks = calc_dist_checked_holes_target(track,hole_horizon,**misc._get_kwargs(args_for_calc_dist_func,include_target=True,remove_target_check_duplicates=True,force_input_target=True))
+    #if estimate_error:
+    #    if (type(track) is list):
+    #        n_samples = len(track)
+    #        if n_samples > 10: # uses bootstrap
+    #            pass
+    #        else: # uses jackknife
+    #            pass
+    #    else:
+    #        warnings.warn('calc_number_of_checks_histogram_tracks :: estimate_error :: cannot estimate error because n_samples = 1')
+    return calc_number_of_checks_histogram(d_checks,d_checks_threshold=d_checks_threshold,less_than_threshold=less_than_threshold,normalize=normalize)
+
+def calc_number_of_checks_histogram(d_checks,d_checks_threshold=20.0,less_than_threshold=True,normalize=True):
+    """
+    number of checks that happened within a radius of d_checks_threshold of the reference point (usually the target, or the TEV-target)
+    that led to the target
+
+    d_checks           -> list of numpy array; only used if track is None
+                          d_checks[i] -> array containing all distances of hole checks from mouse i
+                                         the distance is calculated outside this function, and is relative to a reference point
+                                         (usually the target, or the TEV-target)
+                              i.e., d_checks[i][j] == 0.0 means that the hole check j of mouse i happened exactly at the reference point (e.g., target)
+    d_checks_threshold -> (cm) distance threshold starting from the reference point where the data will be cutoff
+
+
+    returns structtype s with fields s.n and s.P as a misc.structtype
+        s.n -> number of hole checks within d_checks_threshold of the reference (target)
+        s.P -> number of times the food was found with n checks within a radius of d_checks_threshold from the target
+    """
+    if not(type(d_checks) is list):
+        d_checks = [d_checks]
+    assert type(d_checks[0]) is numpy.ndarray, "d_checks must be list of numpy.ndarray"
+    if less_than_threshold:
+        check_condition = lambda A,B: A<=B
+    else:
+        check_condition = lambda A,B: A>B
+    n_checks = [ numpy.nonzero(check_condition(d,d_checks_threshold))[0].size for d in d_checks ] # number of checks within distance threshold for each mouse
+    n_max    = misc.nanmax(n_checks)
+    n_edges  = numpy.arange(n_max+1)+1
+    S,_      = numpy.histogram(n_checks,bins=n_edges,density=normalize)#misc.calc_distribution(n_checks,x_edges=n_edges,return_as_struct=True,binning='linear',replace_Peq0_by_nan=True,remove_Peq0=False)
+    return misc.structtype(n=n_edges[:-1],P=S)
+
+
+def calc_dist_checked_holes_target(track,hole_horizon,include_target=False,remove_target_check_duplicates=False,threshold_method='ampv',gamma=0.2,return_pos_from='hole',
                                          use_alt_target=False,use_reverse_target=False,use_closest_target=False,
                                          r_target=None,ignore_entrance_positions=False,
-                                         use_velocity_minima=False,velocity_min_prominence=None,velmin_find_peaks_args=None):
+                                         use_velocity_minima=False,velocity_min_prominence=None,velmin_find_peaks_args=None,force_input_target=False):
     """
     returns the distance from every checked hole to the target of each track
     """
     if type(track) is list:
-        return [ calc_dist_checked_holes_target(tr,hole_horizon,threshold_method=threshold_method,gamma=gamma,
+        return [ calc_dist_checked_holes_target(tr,hole_horizon,include_target=include_target,remove_target_check_duplicates=remove_target_check_duplicates,
+                                                   threshold_method=threshold_method,gamma=gamma,
                                                    return_pos_from=return_pos_from,use_reverse_target=use_reverse_target,
                                                    use_closest_target=use_closest_target,r_target=r_target,
                                                    ignore_entrance_positions = ignore_entrance_positions,
                                                    use_velocity_minima       = use_velocity_minima,
                                                    velocity_min_prominence   = velocity_min_prominence,
-                                                   velmin_find_peaks_args    = velmin_find_peaks_args) for tr in track ]
+                                                   velmin_find_peaks_args    = velmin_find_peaks_args,
+                                                   force_input_target        = force_input_target) for tr in track ]
     else:
         _,_,r,_ = find_slowing_down_close_to_hole(track,hole_horizon,threshold_method          = threshold_method          ,
                                                                      gamma                     = gamma                     ,
@@ -604,17 +720,20 @@ def calc_dist_checked_holes_target(track,hole_horizon,threshold_method='ampv',ga
                                                                      velmin_find_peaks_args    = velmin_find_peaks_args    )
         if (r.shape[0] > 0):
             r_target = r_target if misc.exists(r_target) else track.r_target
-            if use_alt_target:
-                r_target = track.r_target_alt
-            elif use_reverse_target:
-                r_target = track.r_target_reverse 
+            if not force_input_target:
+                if use_alt_target:
+                    r_target = track.r_target_alt
+                elif use_reverse_target:
+                    r_target = track.r_target_reverse 
             if use_closest_target:
                 warnings.warn('calc_dist_checked_holes_target ::: r_target parameter is ignored; using the closest target from track', RuntimeWarning)
                 d1 = numpy.linalg.norm(r - track.r_target    ,axis=1)
                 d2 = numpy.linalg.norm(r - track.r_target_alt,axis=1)
-                return numpy.min(numpy.row_stack((d1,d2))    ,axis=0).flatten()
+                d  = numpy.min(numpy.row_stack((d1,d2))    ,axis=0).flatten()
             else:
-                return numpy.linalg.norm(r - r_target,axis=1)
+                d  = numpy.linalg.norm(r - r_target,axis=1)
+            d = _include_target_in_number_of_checks(d,include_target,remove_target_check_duplicates)
+            return d
         else:
             return numpy.zeros(1)
 
@@ -643,7 +762,7 @@ def _is_valid_normalize_by(normalize_by):
         res = False
     return res
 
-def calc_number_of_checkings_near_position(track,r0,r0_horizon,hole_horizon,threshold_method='ampv',gamma=0.2,
+def calc_number_of_checkings_near_position(track,r0,r0_horizon,hole_horizon,include_r0=True,remove_r0_duplicates=True,threshold_method='ampv',gamma=0.2,
                                            ignore_entrance_positions=False,use_velocity_minima=False,velocity_min_prominence=None,velmin_find_peaks_args=None):
     """
     finds all the hole-checking happening inside the circle centered in r0 with radius r0_horizon
@@ -654,7 +773,7 @@ def calc_number_of_checkings_near_position(track,r0,r0_horizon,hole_horizon,thre
     """
     if type(track) is list:
         n_checks = misc.get_empty_list(len(track)) # index where a slowing down happened inside any hole event horizon
-        n_checks = [ calc_number_of_checkings_near_position(tr,r0,r0_horizon,hole_horizon,threshold_method=threshold_method,gamma=gamma,
+        n_checks = [ calc_number_of_checkings_near_position(tr,r0,r0_horizon,hole_horizon,include_r0=include_r0,remove_r0_duplicates=remove_r0_duplicates,threshold_method=threshold_method,gamma=gamma,
                                                                ignore_entrance_positions=ignore_entrance_positions,
                                                                use_velocity_minima=use_velocity_minima,
                                                                velocity_min_prominence=velocity_min_prominence,
@@ -671,13 +790,30 @@ def calc_number_of_checkings_near_position(track,r0,r0_horizon,hole_horizon,thre
         r0 = numpy.array(r0).flatten()
         n_checks = 0
         if r_checks.size > 0:
-            n_checks = numpy.nonzero(numpy.linalg.norm(r_checks - r0,axis=1) <= r0_horizon)[0].size
+            d        = _include_target_in_number_of_checks(numpy.linalg.norm(r_checks - r0,axis=1),include_r0,remove_r0_duplicates)
+            n_checks = numpy.nonzero(d <= r0_horizon)[0].size
     return n_checks
+
+def _include_target_in_number_of_checks(d,include_r0,remove_r0_duplicates):
+    r0_checks   = numpy.nonzero(d==0.0)[0]
+    has_r0      = r0_checks.size>0
+    has_r0_dupl = r0_checks.size>1
+    if has_r0_dupl:
+        if remove_r0_duplicates:
+            d = numpy.delete(d,r0_checks[1:]) # this leaves only one check in r0
+    else:
+        if include_r0 and (not has_r0):
+            d = numpy.append(d,0.0)
+    return d
+
 
 def calc_number_of_checkings_per_hole(track,hole_horizon,threshold_method='ampv',gamma=0.2,normalize_by='max',
                                             grouping_hole_horizon=None,sort_result=True,ignore_entrance_positions=False,
-                                            use_velocity_minima=False,velocity_min_prominence=None,velmin_find_peaks_args=None):
+                                            use_velocity_minima=False,velocity_min_prominence=None,velmin_find_peaks_args=None,
+                                            r0=None,radius_of_interest=None):
     """
+    r0                 -> (x,y) position of interest around which this function counts checkings per hole
+    radius_of_interest -> radius around p0
     2d dispersion:
     https://en.wikipedia.org/wiki/Covariance_matrix#/media/File:GaussianScatterPCA.svg
 
@@ -695,6 +831,13 @@ def calc_number_of_checkings_per_hole(track,hole_horizon,threshold_method='ampv'
         track = list(misc.flatten_list(track,only_lists=True))
     if not misc.exists(grouping_hole_horizon):
         grouping_hole_horizon = hole_horizon
+
+    if misc.exists(r0):
+        r0 = numpy.asarray(r0)
+
+    if misc.exists(r0) and misc.exists(radius_of_interest):
+        track = remove_outside_from_region(track,r0,radius_of_interest,mouse_part='nose',copy_track=True)
+
 
     # first find all the positions where a hole-checking event happened
     _,_,r_ls,_ = find_slowing_down_close_to_hole(track,hole_horizon,threshold_method          = threshold_method          ,
@@ -715,6 +858,7 @@ def calc_number_of_checkings_per_hole(track,hole_horizon,threshold_method='ampv'
     r_un,r_count = _find_unique_positions(r,grouping_hole_horizon)
     r_un         = numpy.array(r_un)
     r_count      = numpy.array(r_count,dtype=float)
+    
     r_mean, r_cov, r_dispersion, r_eigdir = misc.calc_dispersion(r_un,r_count)
     if (r_count.size == 1):
         r_count  = r_count[0]*numpy.ones(5)
@@ -1272,7 +1416,7 @@ def remove_slow_parts(track,threshold_method='ampv',gamma=0.2,return_threshold=F
         return [ remove_slow_parts(tr,threshold_method=threshold_method,gamma=gamma,return_threshold=return_threshold,copy_track=copy_track) for tr in track ]
     else:
         v_th = calc_threshold(track.velocity,gamma,threshold_method)
-        k = numpy.nonzero(track.velocity >= v_th)[0]
+        k    = numpy.nonzero(track.velocity >= v_th)[0]
         if copy_track:
             track = copy.deepcopy(track)
         track.time     = track.time[k]
@@ -1284,6 +1428,28 @@ def remove_slow_parts(track,threshold_method='ampv',gamma=0.2,return_threshold=F
             return track,v_th
         else:
             return track
+
+def remove_outside_from_region(track,r0,radius,mouse_part='nose',copy_track=True):
+    """
+    removes parts of the trajectory outside of the circle centered in r0 = (x0,y0), with the given radius
+    """
+    if type(track) is list:
+        return [ remove_outside_from_region(tr,r0,radius,mouse_part=mouse_part,copy_track=copy_track) for tr in track ]
+    else:
+        r_field = 'r_'+mouse_part.lower()
+        if not track.IsField(r_field):
+            raise ValueError('unknown mouse_part')
+        r0   = numpy.asarray(r0)
+        d    = numpy.linalg.norm(track[r_field] - r0,axis=1)
+        k    = numpy.nonzero(d <= radius)[0]
+        if copy_track:
+            track = copy.deepcopy(track)
+        track.time     = track.time[k]
+        track.velocity = track.velocity[k]
+        track.r_tail   = track.r_tail[k,:]
+        track.r_center = track.r_center[k,:]
+        track.r_nose   = track.r_nose[k,:]
+        return track
 
 
 def _get_start_end_time_slice(time,t0_frac=0.0,dt_frac=1.0,return_idx=False):

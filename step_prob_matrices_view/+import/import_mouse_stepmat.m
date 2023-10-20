@@ -24,18 +24,42 @@ function si = import_mouse_stepmat(fileName_or_data,learning_stage_type,dr_targe
     assert(any(strcmpi(learning_stage_type,{'mouse','trial'})),'import_mouse_stepmat :: learning_stage_type can be either mouse or trial');
     if ischar(fileName_or_data)
         fileName = fileName_or_data;
-        d        = load(fileName_or_data);
+        %d        = load(fileName_or_data);
+        d        = import.import_files(fileName_or_data);
     else
         fileName = '';
         d        = fileName_or_data;
     end
-    
+    if iscell(d)
+        si = cell(size(d));
+        for k = 1:numel(d)
+            si{k} = import_mouse_stepmat_internal(d{k},fileName,learning_stage_type,dr_target_correction,dr_target_trial_correction);
+        end
+    else
+        si = import_mouse_stepmat_internal(d,fileName,learning_stage_type,dr_target_correction,dr_target_trial_correction);
+    end
+end
+
+function si = import_mouse_stepmat_internal(d,fileName,learning_stage_type,dr_target_correction,dr_target_trial_correction)
     % correcting target coordinates
-    d.r_target_trial                 = cellfun(@(x) double(x), d.r_target_trial, 'UniformOutput', false);
+    d.r_target_trial                 = cellfun(@(x) double(x), d.r_target_trial        , 'UniformOutput', false);
     dr_target_trial_correction       = get_target_trial_correction(numel(d.r_target_trial),dr_target_trial_correction,dr_target_correction);
     d.r_target                       = double(d.r_target) + dr_target_correction;
-    d.r_target_trial                 = func.sum_cell_of_vectors(d.r_target_trial,dr_target_trial_correction); %mat2cell(double(cell2mat(d.r_target_trial')) + cell2mat(dr_target_trial_correction'),ones(1,numel(d.r_target_trial)),2)';
+    d.r_target_trial                 = func.sum_cell_of_vectors(d.r_target_trial        , dr_target_trial_correction); %mat2cell(double(cell2mat(d.r_target_trial')) + cell2mat(dr_target_trial_correction'),ones(1,numel(d.r_target_trial)),2)';
     d.r_target_previous_trial(2:end) = d.r_target_trial(1:(end-1));
+
+    if isfield(d,'r_target_alt_trial')
+        d.r_target_alt_trial             = cellfun(@(x) double(x), d.r_target_alt_trial    , 'UniformOutput', false);
+        d.r_target_alt_trial             = func.sum_cell_of_vectors(d.r_target_alt_trial    , dr_target_trial_correction); %mat2cell(double(cell2mat(d.r_target_trial')) + cell2mat(dr_target_trial_correction'),ones(1,numel(d.r_target_trial)),2)';
+    end
+    if isfield(d,'r_target_rev_trial')
+        d.r_target_rev_trial             = cellfun(@(x) double(x), d.r_target_rev_trial    , 'UniformOutput', false);
+        d.r_target_rev_trial             = func.sum_cell_of_vectors(d.r_target_rev_trial    , dr_target_trial_correction); %mat2cell(double(cell2mat(d.r_target_trial')) + cell2mat(dr_target_trial_correction'),ones(1,numel(d.r_target_trial)),2)';
+    end
+    if isfield(d,'r_target_revalt_trial')
+        d.r_target_revalt_trial          = cellfun(@(x) double(x), d.r_target_revalt_trial , 'UniformOutput', false);
+        d.r_target_revalt_trial          = func.sum_cell_of_vectors(d.r_target_revalt_trial , dr_target_trial_correction); %mat2cell(double(cell2mat(d.r_target_trial')) + cell2mat(dr_target_trial_correction'),ones(1,numel(d.r_target_trial)),2)';
+    end
     
     si.fileName                = fileName;
     si.probability_calculation = d.prob_calc;
@@ -73,9 +97,11 @@ function learning_stage = import_as_mouse_struct(d,simParam)
     % for each mouse
     mouse_id_un    = unique(d.mouse_id{1});
     n_mouse        = numel(mouse_id_un);
+    target_fields  = get_empty_cell_of_target_fields_for_learning_stage(d,cell(d.n_stages,1));
     learning_stage = struct('mouse'      , cell(d.n_stages,1),...
-                            'target'     , cell(d.n_stages,1),...
-                            'target_prev', cell(d.n_stages,1));
+                            target_fields{:});
+                            %'target'     , cell(d.n_stages,1),...
+                            %'target_prev', cell(d.n_stages,1));
     
     for k = 1:d.n_stages
         
@@ -84,8 +110,10 @@ function learning_stage = import_as_mouse_struct(d,simParam)
                                                'mouse_r' , cell(n_mouse,1),...
                                                't_food'  , cell(n_mouse,1),...
                                                'sites'   , cell(n_mouse,1));
-        learning_stage(k).target      = import.sorw_get_linear_index_from_experiment_lattice(simParam.L,d.r_target_trial{k});
-        learning_stage(k).target_prev = import.sorw_get_linear_index_from_experiment_lattice(simParam.L,d.r_target_previous_trial{k});
+        
+        %learning_stage(k).target      = import.sorw_get_linear_index_from_experiment_lattice(simParam.L,d.r_target_trial{k});
+        %learning_stage(k).target_prev = import.sorw_get_linear_index_from_experiment_lattice(simParam.L,d.r_target_previous_trial{k});
+        learning_stage(k) = include_target_fields(simParam,learning_stage(k),d,k);
         
         % for each mouse
         for m = 1:n_mouse
@@ -112,13 +140,16 @@ function learning_stage = import_as_trial_struct(d,simParam)
         n_trials    = numel(trial_id_un);
         
         % creating the mouse array
+        target_fields = get_empty_cell_of_target_fields_for_learning_stage(d,cell(n_trials,1));
+
         learning_stage(k).trial = struct('trial_id'   , cell(n_trials,1),...
                                          'mouse'      , cell(n_trials,1),...
                                          'mouse_r'    , cell(n_trials,1),...
                                          't_food'     , cell(n_trials,1),...
                                          'sites'      , cell(n_trials,1),...
-                                         'target'     , cell(n_trials,1),...
-                                         'target_prev', cell(n_trials,1));
+                                         target_fields{:});
+                                         %'target'     , cell(n_trials,1),...
+                                         %'target_prev', cell(n_trials,1));
         
         % for each mouse
         for m = 1:n_trials
@@ -132,9 +163,49 @@ function learning_stage = import_as_trial_struct(d,simParam)
             learning_stage(k).trial(m).mouse_r     = cellfun(@(r)import.grid_xy_experiment_to_grid_ind(simParam.L,r),d.r_mouse{k}(ind),'UniformOutput',false);
             learning_stage(k).trial(m).t_food      =  d.t_to_food{k}(ind);
             learning_stage(k).trial(m).sites       = arrayfun(@(a,b)model.sorw_GetSites(d.P_specific{k}{a},d.N{k}{b},d.G{k}{b},false),ind_spec,ind,'UniformOutput',false);
-            learning_stage(k).trial(m).target      = import.sorw_get_linear_index_from_experiment_lattice(simParam.L,d.r_target_trial{k});
-            learning_stage(k).trial(m).target_prev = import.sorw_get_linear_index_from_experiment_lattice(simParam.L,d.r_target_previous_trial{k});
+
+            learning_stage(k).trial(m) = include_target_fields(simParam,learning_stage(k).trial(m),d,k);
+            %learning_stage(k).trial(m).target      = import.sorw_get_linear_index_from_experiment_lattice(simParam.L,d.r_target_trial{k}         );
+            %learning_stage(k).trial(m).target_prev = import.sorw_get_linear_index_from_experiment_lattice(simParam.L,d.r_target_previous_trial{k});
         end
 
+    end
+end
+
+function l = get_target_trial_fields(d)
+    l = fieldnames(d);
+    l = l(contains(l,'target') & contains(l,'trial'));
+end
+
+function c = get_empty_cell_of_target_fields_for_learning_stage(d,empty_val)
+    target_labels = get_target_trial_fields(d);
+    ff            = get_step_prob_field_to_learning_stage_corresp();
+    c             = cell(1,2*numel(target_labels));
+    i = -1;
+    for k = 1:numel(target_labels)
+        l                 = target_labels{k}; % d struct field
+        nl                = ff.(l);           % trial_struct field
+
+        i      = i + 2;
+        c{i}   = nl;
+        c{i+1} = empty_val;
+    end
+end
+
+function s = get_step_prob_field_to_learning_stage_corresp()
+    s = struct( 'r_target_trial'            , 'target'        ,...
+                'r_target_alt_trial'        , 'target_alt'    ,...
+                'r_target_rev_trial'        , 'target_rev'    ,...
+                'r_target_revalt_trial'     , 'target_revalt' ,...
+                'r_target_previous_trial'   , 'target_prev'   );
+end
+
+function trial_struct = include_target_fields(simParam,trial_struct,d,learning_stage_index)
+    target_labels = get_target_trial_fields(d);
+    ff            = get_step_prob_field_to_learning_stage_corresp();
+    for k = 1:numel(target_labels)
+        l                 = target_labels{k}; % d struct field
+        nl                = ff.(l);           % trial_struct field
+        trial_struct.(nl) = import.sorw_get_linear_index_from_experiment_lattice(simParam.L,d.(l){learning_stage_index});
     end
 end

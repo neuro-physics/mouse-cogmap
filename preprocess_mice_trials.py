@@ -22,16 +22,58 @@ import modules.process_mouse_trials_lib as plib
 def main():
     clear_output_directory = True
     ntrials_to_process     = None
-    preprocess_experiment('relative_target'        , clear_output_directory, ntrials_to_process)
-    preprocess_experiment('fixed_target'           , clear_output_directory, ntrials_to_process)
-    preprocess_experiment('two_targets'            , clear_output_directory, ntrials_to_process)
-    preprocess_experiment('preliminary'            , clear_output_directory, ntrials_to_process)
-    preprocess_experiment('two_targets_rot'        , clear_output_directory, ntrials_to_process)
-    preprocess_experiment('two_targets_rot_mixsex' , clear_output_directory, ntrials_to_process)
-    
+
+    """
+    # experiments where mice are trained in "static entrance protocol" until first probe at least
+    # 2019-05-23 # preliminary
+    # 2021-06-22 # two targets
+    # 2021-11-19 # two targets
+    # 2022-08-12 # two targets rotated probe
+    # 2022-09-20 # two targets with rotated probe (female mice)
+    # 2022-10-11 # two targets rotated probe mixed sex
+    # 2022-11-04 # relative target (aka static entrance) - after trial 21 (at the probe), two mice (out of 4) get 90 degrees rotation
+
+    # relative target (aka static entrance)
+    # 2019-10-07
+    # 2019-09-06
+
+    # fixed target (aka random entrance)
+    # 2021-07-16
+    # 2021-11-15
+
+    # two targets
+    # 2021-11-19
+    # 2021-06-22
+
+    # preliminary experiments
+    # 2019-05-23
+
+    # two targets with rotated probe
+    # 2022-08-12
+
+    # two targets with rotated probe and mixed sex mice
+    # 2022-10-11
+
+    # two targets with rotated probe (female mice)
+    # 2022-09-20 :: two_targets_rot_fem
+
+    # relative target (aka static entrance) - after trial 21, two mice get 90 degrees rotation
+    # 2022-11-04
+    """
+
+    preprocess_experiment('relative_target'                , clear_output_directory, ntrials_to_process)
+    preprocess_experiment('fixed_target'                   , clear_output_directory, ntrials_to_process)
+    preprocess_experiment('two_targets'                    , clear_output_directory, ntrials_to_process)
+    preprocess_experiment('preliminary'                    , clear_output_directory, ntrials_to_process)
+    preprocess_experiment('two_targets_rot'                , clear_output_directory, ntrials_to_process)
+    preprocess_experiment('two_targets_rot_mixsex'         , clear_output_directory, ntrials_to_process)
+    preprocess_experiment('two_targets_rot_fem'            , clear_output_directory, ntrials_to_process)
+    preprocess_experiment('relative_target_90deg'          , clear_output_directory, ntrials_to_process)
+#end main
+
 def preprocess_experiment(experiment,clear_output_directory,ntrials_to_process):
     experiment = experiment.lower()
-    valid_experiments = ['relative_target','fixed_target','two_targets','preliminary','two_targets_rot','two_targets_rot_mixsex']
+    valid_experiments = ['relative_target','fixed_target','two_targets','preliminary','two_targets_rot','two_targets_rot_mixsex','two_targets_rot_fem','relative_target_90deg']
     assert experiment in valid_experiments, "experiment must one of %s"%(  str(valid_experiments)[1:-1].replace("'",'')  )
 
     this_directory = sys.path[0]
@@ -132,11 +174,40 @@ def preprocess_experiment(experiment,clear_output_directory,ntrials_to_process):
                   correct_distortion     = False ,
                   mouse_gender           = {} ,
                   correct_arena_center   = False )
-          ]
-    
+        ]
+    elif experiment == 'two_targets_rot_fem':
+        clear_output_directory = [clear_output_directory]
+        process_param = [
+        # another set (not sure if this belongs here... waiting Kelly's answer)
+            dict( trial_dir              = os.path.join(this_directory,'../EthovisionPathAnalysis/Raw Trial Data/2022-09-20_Raw Trial Data'),
+                  out_dir                = os.path.join(this_directory,'experiments/two_targets_rot_fem'),
+                  trials_to_process      = 'all', # trials to process; available values in plib.ethovision_to_track_matfile
+                  replacement_dict       = {}, # no trial label replacements
+                  correct_distortion     = False,
+                  mouse_gender           = {73:'F', 74:'F', 75:'F', 76:'F'} ,
+                  correct_arena_center   = False)
+        ]
+    elif experiment == 'relative_target_90deg':
+        clear_output_directory = [clear_output_directory]
+        process_param = [
+        # another set (not sure if this belongs here... waiting Kelly's answer)
+            dict( trial_dir              = os.path.join(this_directory,'../EthovisionPathAnalysis/Raw Trial Data/2022-11-04_Raw Trial Data'),
+                  out_dir                = os.path.join(this_directory,'experiments/relative_target_90deg'),
+                  trials_to_process      = 'all', # trials to process; available values in plib.ethovision_to_track_matfile
+                  replacement_dict       = {}, # no trial label replacements
+                  correct_distortion     = False,
+                  mouse_gender           = {} ,
+                  correct_arena_center   = False)
+        ]
+    else:
+        raise ValueError('Unknown experiment %s'%experiment)
+
     for parval,cleardir in zip(process_param,clear_output_directory):
         process_trajectory_files(True,cleardir,ntrials_to_process=ntrials_to_process,**parval)
+    
+    io.write_txt_header_from_dict(os.path.join(process_param[0]['out_dir'],'experiment_process_params.txt'),process_param,replace=True,hchar='#',verbose=True)
 
+#end preprocess_experiment
 
 def process_trajectory_files(do_processing,clear_output_directory,ntrials_to_process=None,trial_dir=None,out_dir=None,trials_to_process=None,replacement_dict=None,correct_distortion=None,mouse_gender=None,correct_arena_center=False):
     ########################
@@ -205,6 +276,7 @@ def process_trajectory_files(do_processing,clear_output_directory,ntrials_to_pro
             for md in mouse_dir:
                 io.replace_tracks_trial_label(str(md),replacement_dict)
 
+#end process_trajectory_files
     
 if __name__ == '__main__':
     main()

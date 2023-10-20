@@ -1,0 +1,16 @@
+# trial_dir=D:\Dropbox\p\uottawa\data\animal_trajectories\mouse_track\../EthovisionPathAnalysis/Raw Trial Data/2021-11-19_Raw Trial Data
+# out_dir=D:\Dropbox\p\uottawa\data\animal_trajectories\mouse_track\experiments/two_target_no_cues
+# trials_to_process=all
+# replacement_dict={'Reverse': 'Probe'}
+# correct_distortion=False
+# mouse_gender={}
+# correct_arena_center=False
+
+
+# trial_dir=D:\Dropbox\p\uottawa\data\animal_trajectories\mouse_track\../EthovisionPathAnalysis/Raw Trial Data/2021-06-22_Raw Trial Data
+# out_dir=D:\Dropbox\p\uottawa\data\animal_trajectories\mouse_track\experiments/two_target_no_cues
+# trials_to_process=all
+# replacement_dict={}
+# correct_distortion=False
+# mouse_gender={}
+# correct_arena_center=False

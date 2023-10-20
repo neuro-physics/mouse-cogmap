@@ -12,8 +12,10 @@
 
 import os
 import math
-import warnings
+import copy
 import numpy
+import operator
+import warnings
 import collections
 import scipy.io
 import scipy.stats
@@ -21,28 +23,49 @@ import scipy.sparse
 import scipy.spatial
 import scipy.optimize
 import scipy.interpolate
-import copy
+import modules.io as io
 from enum import Enum
 from numba import jit
 
 
 #@jit(nopython=True,parallel=True, fastmath=True)
-def intertwin_vectors(r1,r2):
+def intertwin_vectors(r1,r2,*rn,copy_data=True,axis=0):
     """
     merges r1 and r2 in r,
     such that r[0::2] = r1
     and       r[1::2] = r2
     """
-    if r1.ndim == 1:
-        assert ((r2.ndim == 1) and (r1.size == r2.size)),"r1 and r2 must be the same ndim and size"
-        r = numpy.zeros(r1.size + r2.size)
-    elif r1.ndim == 2:
-        assert ((r2.ndim == 2) and (r1.shape == r2.shape)),"r1 and r2 must be the same ndim and shape"
-        r = numpy.zeros((r1.shape[0] + r2.shape[0],r1.shape[1]))
+    if copy_data:
+        get_value = lambda x: copy.deepcopy(x)
     else:
-        raise ValueError('this function is not defined for ndim > 2')
-    r[0::2] = r1
-    r[1::2] = r2
+        get_value = lambda x: x
+    rn                 = (r1,r2) + rn
+    use_rows_intertwin = True
+    if type(r1) is list:
+        assert all((type(r) is list) and (len(r) == len(r1)) for r in rn),"all input r must be lists because r1 is a list; and all must have the same length"
+        r = [None for _ in range(len(rn)*len(r1)) ]
+    else:
+        if r1.ndim == 1:
+            assert all((r.ndim == 1) and (r.size == r1.size) for r in rn),"all input r must be the same ndim and size"
+            r = numpy.zeros(r1.size * len(rn),dtype=r1.dtype)
+        elif r1.ndim == 2:
+            assert all((r.ndim == 2) and (r.shape == r1.shape) for r in rn),"r1 and r2 must be the same ndim and shape"
+            assert any(axis == n for n in (0,1)), "axis must be 0 (for row intertwining) or 1 (for column intertwining)"
+            if axis == 0:
+                r = numpy.zeros((r1.shape[0]*len(rn),r1.shape[1]),dtype=r1.dtype)
+            else:
+                r = numpy.zeros((r1.shape[0],r1.shape[1]*len(rn)),dtype=r1.dtype)
+                use_rows_intertwin = False
+        else:
+            raise ValueError('this function is not defined for ndim > 2')
+    if use_rows_intertwin:
+        N = len(rn)
+        for n in range(N):
+            r[n::N] = get_value(rn[n])
+    else:
+        N = len(rn)
+        for n in range(N):
+            r[:,n::N] = get_value(rn[n])
     return r
 
 #@jit(nopython=True,parallel=True, fastmath=True)
@@ -121,7 +144,7 @@ def derivative(x,f,axis=0,interpolate=False,epsilon=1.0e-10):
         return fp if axis == 1 else fp.T
     else:
         if interpolate:
-            ff = scipy.interpolate.interp1d(x,f,kind='cubic',copy=False)
+            ff   = scipy.interpolate.interp1d(x,f,kind='cubic',copy=False)
             dfdx = lambda x: (ff(x+epsilon) - ff(x))/epsilon
             return numpy.append(dfdx(x[:-1]), dfdx(x[-1]-epsilon))
             # we append fp[-1] because we use x[:-1] in the approx_fprime call
@@ -1441,7 +1464,7 @@ def nanmax(x,**nanmaxargs):
     s = numpy.nanmax(x_masked,**nanmaxargs)
     return s.data if type(s) is numpy.ma.core.MaskedArray else s
 
-def linregress(x,y=None,alternative='two-sided'):
+def linregress(x,y=None,alternative='two-sided',return_linear_func=False):
     """
     a wrapper for scipy.stats.linregress
     where we get rid of inf and nan from x and y
@@ -1462,12 +1485,251 @@ def linregress(x,y=None,alternative='two-sided'):
         s = scipy.stats.linregress(x[is_valid],get_y(y,is_valid),alternative=alternative)
     except:
         pass
+    if return_linear_func:
+        f = lambda x,linreg: linreg.intercept + linreg.slope * x
+        s = (s,f)
     return s
+
+def get_items_by_index(lst,ind):
+    #from operator import itemgetter
+    items = operator.itemgetter( *ind  )(lst)
+    if type(items) is tuple:
+        items = list(items)
+    if not(type(items) is list):
+        items = [items]
+    return items
+
+def jackknife_track_sample(input_tracks):
+    """
+    input_tracks is a list of track files containing N mice in each trial
+    (if it is a list of lists -- meaning it is grouped by mouse of trial), the input list will be flattened
+    this function returns N track file lists, each of which has a different mouse removed compared to the input_track list (leave one out procedure)
+
+    each trial must have the same number of mice, otherwise the code will fail
+    """
+    if is_list_of_1d_collection_or_none(input_tracks):
+        input_tracks = list(flatten_list(input_tracks, only_lists=True))
+    input_tracks = io.group_track_list(input_tracks,group_by='trial')[0]
+    N = numpy.max( [ len(tr_group) for tr_group in input_tracks ] ) # max number of mice
+    
+    #assert numpy.all( numpy.array([ len(tr_group) for tr_group in input_tracks ]) == N ), 'All trials must have the same number of mice'
+
+    input_tracks_jk_group = []
+    for k in range(N):
+        g = copy.deepcopy(input_tracks)
+        for n,trial_group in enumerate(g):
+            ind  = list(  set(range(len(trial_group))) - set([k%len(trial_group)])  )
+            g[n] = get_items_by_index(trial_group,ind) # removing mouse k out of N
+        input_tracks_jk_group.append(list(flatten_list(g,only_lists=True)))
+
+    return input_tracks_jk_group
+
+"""
+The following functions: jackknife_resampling and jackknife_stats, have been copied from the astropy project.
+Thus, the 3-clause BSD License follows below
+
+Copyright (c) 2011-2022, Astropy Developers
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+    - Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+    - Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+    - Neither the name of the Astropy Team nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""
+def jackknife_resampling(data):
+    """Performs jackknife resampling on numpy arrays.
+
+    Jackknife resampling is a technique to generate 'n' deterministic samples
+    of size 'n-1' from a measured sample of size 'n'. Basically, the i-th
+    sample, (1<=i<=n), is generated by means of removing the i-th measurement
+    of the original sample. Like the bootstrap resampling, this statistical
+    technique finds applications in estimating variance, bias, and confidence
+    intervals.
+
+    Parameters
+    ----------
+    data : ndarray
+        Original sample (1-D array) from which the jackknife resamples will be
+        generated.
+
+    Returns
+    -------
+    resamples : ndarray
+        The i-th row is the i-th jackknife sample, i.e., the original sample
+        with the i-th measurement deleted.
+
+    References
+    ----------
+    .. [1] McIntosh, Avery. "The Jackknife Estimation Method".
+        <https://arxiv.org/abs/1606.00497>
+
+    .. [2] Efron, Bradley. "The Jackknife, the Bootstrap, and other
+        Resampling Plans". Technical Report No. 63, Division of Biostatistics,
+        Stanford University, December, 1980.
+
+    .. [3] Jackknife resampling <https://en.wikipedia.org/wiki/Jackknife_resampling>
+    """
+    n = data.shape[0]
+    if n <= 0:
+        raise ValueError("data must contain at least one measurement.")
+
+    resamples = numpy.empty([n, n - 1])
+
+    for i in range(n):
+        resamples[i] = numpy.delete(data, i)
+
+    return resamples
+
+def jackknife_stats(data, statistic, confidence_level=0.95):
+    """Performs jackknife estimation on the basis of jackknife resamples.
+
+    This function requires `SciPy <https://www.scipy.org/>`_ to be installed.
+
+    Parameters
+    ----------
+    data : ndarray
+        Original sample (1-D array).
+    statistic : function
+        Any function (or vector of functions) on the basis of the measured
+        data, e.g, sample mean, sample variance, etc. The jackknife estimate of
+        this statistic will be returned.
+    confidence_level : float, optional
+        Confidence level for the confidence interval of the Jackknife estimate.
+        Must be a real-valued number in (0,1). Default value is 0.95.
+
+    Returns
+    -------
+    estimate : float or `~numpy.ndarray`
+        The i-th element is the bias-corrected "jackknifed" estimate.
+
+    bias : float or `~numpy.ndarray`
+        The i-th element is the jackknife bias.
+
+    std_err : float or `~numpy.ndarray`
+        The i-th element is the jackknife standard error.
+
+    conf_interval : ndarray
+        If ``statistic`` is single-valued, the first and second elements are
+        the lower and upper bounds, respectively. If ``statistic`` is
+        vector-valued, each column corresponds to the confidence interval for
+        each component of ``statistic``. The first and second rows contain the
+        lower and upper bounds, respectively.
+
+    Examples
+    --------
+    1. Obtain Jackknife resamples:
+
+    >>> import numpy as np
+    >>> from astropy.stats import jackknife_resampling
+    >>> from astropy.stats import jackknife_stats
+    >>> data = np.array([1,2,3,4,5,6,7,8,9,0])
+    >>> resamples = jackknife_resampling(data)
+    >>> resamples
+    array([[2., 3., 4., 5., 6., 7., 8., 9., 0.],
+           [1., 3., 4., 5., 6., 7., 8., 9., 0.],
+           [1., 2., 4., 5., 6., 7., 8., 9., 0.],
+           [1., 2., 3., 5., 6., 7., 8., 9., 0.],
+           [1., 2., 3., 4., 6., 7., 8., 9., 0.],
+           [1., 2., 3., 4., 5., 7., 8., 9., 0.],
+           [1., 2., 3., 4., 5., 6., 8., 9., 0.],
+           [1., 2., 3., 4., 5., 6., 7., 9., 0.],
+           [1., 2., 3., 4., 5., 6., 7., 8., 0.],
+           [1., 2., 3., 4., 5., 6., 7., 8., 9.]])
+    >>> resamples.shape
+    (10, 9)
+
+    2. Obtain Jackknife estimate for the mean, its bias, its standard error,
+    and its 95% confidence interval:
+
+    >>> test_statistic = np.mean
+    >>> estimate, bias, stderr, conf_interval = jackknife_stats(
+    ...     data, test_statistic, 0.95)
+    >>> estimate
+    4.5
+    >>> bias
+    0.0
+    >>> stderr  # doctest: +FLOAT_CMP
+    0.95742710775633832
+    >>> conf_interval
+    array([2.62347735,  6.37652265])
+
+    3. Example for two estimates
+
+    >>> test_statistic = lambda x: (np.mean(x), np.var(x))
+    >>> estimate, bias, stderr, conf_interval = jackknife_stats(
+    ...     data, test_statistic, 0.95)
+    >>> estimate
+    array([4.5       ,  9.16666667])
+    >>> bias
+    array([ 0.        , -0.91666667])
+    >>> stderr
+    array([0.95742711,  2.69124476])
+    >>> conf_interval
+    array([[ 2.62347735,   3.89192387],
+           [ 6.37652265,  14.44140947]])
+
+    IMPORTANT: Note that confidence intervals are given as columns
+    """
+    # jackknife confidence interval
+    if not (0 < confidence_level < 1):
+        raise ValueError("confidence level must be in (0, 1).")
+
+    # make sure original data is proper
+    n = data.shape[0]
+    if n <= 0:
+        raise ValueError("data must contain at least one measurement.")
+
+    # Only import scipy if inputs are valid
+    from scipy.special import erfinv
+
+    resamples = jackknife_resampling(data)
+
+    stat_data = statistic(data)
+    jack_stat = numpy.apply_along_axis(statistic, 1, resamples)
+    mean_jack_stat = numpy.mean(jack_stat, axis=0)
+
+    # jackknife bias
+    bias = (n - 1) * (mean_jack_stat - stat_data)
+
+    # jackknife standard error
+    std_err = numpy.sqrt((n - 1) * numpy.mean((jack_stat - mean_jack_stat) * (jack_stat - mean_jack_stat), axis=0))
+
+    # bias-corrected "jackknifed estimate"
+    estimate = stat_data - bias
+
+    z_score  = numpy.sqrt(2.0) * erfinv(confidence_level)
+    conf_interval = estimate + z_score * numpy.array((-std_err, std_err))
+
+    return estimate, bias, std_err, conf_interval
+
+
+def jackknife_func(x, func, return_jk_confint_se=False, return_bias=False, confidence_level=0.95):
+    """
+    wrapper for jackknife_stats above
+    """
+    if not(type(x) is numpy.ndarray):
+        x         = numpy.asarray(x)
+    if x.ndim > 1:
+        warnings.warn('jackknife_func :: x :: flattening input data')
+        x = x.flatten()
+    m, bias, std_err, conf_interval = jackknife_stats(x,func,confidence_level=confidence_level)
+    result = m
+    if return_jk_confint_se:
+        result = (m,conf_interval,std_err)
+    if return_bias:
+        result += (bias,)
+    return result
+
 
 def bootstrap_func(x,func,return_bs_confint_se=False,**bootstrapArgs):
     """
     this function repeatedly (n_resamples times) applies func(x) along the specified axis (if any)
-    and then returns the mean value of func(x) over these n_resamples times
+    and then returns the mean value of func(x) over these n_resamples samples
 
     delegate parameters to scipy.stats.bootstrap:
         axis             -> axis along which to apply func
@@ -1480,20 +1742,20 @@ def bootstrap_func(x,func,return_bs_confint_se=False,**bootstrapArgs):
     >>> bootstrap_func(x,numpy.std) # returns approx 10
     """
     if not(type(x) is numpy.ndarray):
-        x = numpy.asarray(x)
+        x         = numpy.asarray(x)
     bootstrapArgs = set_default_kwargs(bootstrapArgs,n_resamples=10,vectorized=True,confidence_level=0.95)
-    is_1d = False
+    is_1d         = False
     if x.ndim == 1:
-        is_1d = True
-        x = x.reshape((x.size,1))
+        is_1d                 = True
+        x                     = x.reshape((x.size,1))
         bootstrapArgs['axis'] = 0
-    bs = scipy.stats.bootstrap((x,),func,**bootstrapArgs)
+    bs       = scipy.stats.bootstrap((x,),func,**bootstrapArgs)
     get_elem = lambda el: el[0] if is_1d else el
-    m = (bs.confidence_interval.low + bs.confidence_interval.high)/2.0
-    m = get_elem(m)
-    confint = (get_elem(bs.confidence_interval.low), get_elem(bs.confidence_interval.high))
-    s = get_elem(bs.standard_error)
-    result = m
+    m        = (bs.confidence_interval.low + bs.confidence_interval.high)/2.0
+    m        = get_elem(m)
+    confint  = (get_elem(bs.confidence_interval.low), get_elem(bs.confidence_interval.high))
+    s        = get_elem(bs.standard_error)
+    result   = m
     if return_bs_confint_se:
         result = (m,confint,s)
     return result
@@ -1672,8 +1934,15 @@ def select_from_list(x,select_func):
     assert type(x) is list,'select_from_list ::: x must be a list'
     return [ xx for xx in x if select_func(xx) ]
 
-def flatten_list(items,only_lists=False):
+def flatten_list(items,only_lists=False,return_list=False):
     """Yield items from any nested iterable; see Reference."""
+    if return_list:
+        return list(flatten_list_generator(items,only_lists=only_lists))
+    else:
+        return flatten_list_generator(items,only_lists=only_lists)
+        
+
+def flatten_list_generator(items,only_lists=False):
     try:
         from collections.abc import Iterable                            # < py38
     except Exception:
@@ -1685,7 +1954,7 @@ def flatten_list(items,only_lists=False):
     if check_x(items):
         for x in items:
             if check_x(x):
-                for sub_x in flatten_list(x,only_lists=only_lists):
+                for sub_x in flatten_list_generator(x,only_lists=only_lists):
                     yield sub_x
             else:
                 yield x
@@ -1716,6 +1985,13 @@ def transpose_list_of_list(lst):
 
 def unique_ordered(lst):
     return list(collections.OrderedDict.fromkeys(lst))
+
+def unique_stable(a):
+    if not(type(a) is numpy.ndarray):
+        a = numpy.asarray(a)
+    assert a.ndim == 1,"input must be a 1-dim numpy.ndarray"
+    _, idx = numpy.unique(a, return_index=True)
+    return a[numpy.sort(idx)]
 
 def calc_lower_upper_mean(x):
     if not _is_numpy_array(x):
@@ -1757,6 +2033,17 @@ def _get_distribution_bin_edges(x,n_bins,binning):
         # log-scaled bins
         x_edges = numpy.logspace(numpy.log(x_min+1.0), numpy.log(x_max+1.0), n_bins+1, base=numpy.exp(1))-1.0
     return x_edges
+
+def calc_cumulative_dist(dist_struct,x_par_name='x',P_par_name='P'):
+    """
+    given a distribution struct returned by calc_distribution below,
+    we return the cumulative distribution (sum up to x)
+    """
+    if type(dist_struct) is list:
+        return [ calc_cumulative_dist(d,x_par_name=x_par_name,P_par_name=P_par_name) for d in dist_struct ]
+    else:
+        C    = numpy.cumsum(dist_struct[P_par_name])
+        return structtype(struct_fields=[x_par_name,'C'],field_values=[dist_struct[x_par_name],C])
 
 def calc_distribution(x,n_bins=25,x_edges=None,return_as_struct=False,binning='linear',join_samples=False,replace_Peq0_by_nan=False,remove_Peq0=False,_recalculate_mid=True):
     """
@@ -1907,3 +2194,26 @@ def setdiff(A,B):
             r.append(a)
             k.append(i)
     return numpy.asarray(r),numpy.asarray(k)
+
+def factorize(num):
+    k = int(copy.copy(num))
+    return [n for n in range(1, k+1) if k%n == 0]
+
+def divide_into_factors(num):
+    s    = numpy.sqrt(num)
+    if numpy.floor(s) == s:
+        a = int(s)
+        b = a
+        return (a,b)
+    f    = factorize(num)
+    p    = numpy.cumprod(f)
+    k    = find_first(f>s)
+    a    = int(p[k-1])
+    b    = int(num/a)
+    return numpy.min((a,b)),numpy.max((a,b))
+
+def is_list_of_list(v):
+    if type(v) is list:
+        if type(v[0]) is list:
+            return True
+    return False

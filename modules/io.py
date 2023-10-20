@@ -17,6 +17,7 @@ import sys
 import ast
 import glob # name pattern expansion
 import numpy
+import numpy.core.records
 import functools
 import re as regexp
 import scipy.io
@@ -67,6 +68,41 @@ def read_txt_header(file_name,hchar='#'):
         f.close()
     return f_content
 
+def write_txt_header_from_dict(file_name,data_dict,append=False,replace=True,hchar='#',verbose=True):
+    """
+    writes the following lines in file_name for each key in data_dict:
+    # ...
+    # key=value
+    # ...
+
+    if data_dict is a list of dict, then adds two blank lines between each dict in the list
+    """
+    open_mode = 'w'
+    if append:
+        open_mode = 'a'
+    else:
+        if not replace:
+            file_name = check_and_get_filename(file_name)
+    f_content = []
+    with open(file_name,open_mode,encoding='utf-8') as f:
+        if type(data_dict) is list:
+            data_dict_list = data_dict
+        else:
+            data_dict_list = [data_dict]
+        for n,dd in enumerate(data_dict_list):
+            for k,v in dd.items():
+                line = '%s %s=%s\n'%(hchar,str(k),str(v))
+                f_content.append(line)
+                f.write(line)
+            if (len(data_dict_list)>1) and (n < (len(data_dict_list)-1)):
+                line = '\n\n'
+                f_content.append(line)
+                f.write(line)
+        f.close()
+    if verbose:
+        print('*** file written: ', file_name)
+    return file_name,f_content
+
 def save_step_probability_file_struct(out_dir,step_file_struct,ntrials=None,filename_suffix=''):
     #step_file_struct.use_extra_trials = False                            if not step_file_struct.IsField('use_extra_trials') else step_file_struct.use_extra_trials
     #step_file_struct.prob_calc        = misc.ProbabilityType.independent if not step_file_struct.IsField('prob_calc'       ) else step_file_struct.prob_calc
@@ -74,11 +110,13 @@ def save_step_probability_file_struct(out_dir,step_file_struct,ntrials=None,file
     nstages = len(step_file_struct.P)
     if not ntrials:
         ntrials = 16 if step_file_struct.use_extra_trials else 14
-    ptype                      = 'cstep' if step_file_struct.prob_calc == misc.ProbabilityType.cumulative_step else ('cprob' if step_file_struct.prob_calc == misc.ProbabilityType.cumulative_prob else 'indept')
-    ic                         = '0.0' if step_file_struct.start_from_zero else '0.25'
-    st                         = 'stopfood' if step_file_struct.stop_at_food else 'continuefood'
-    align_method               = 'ent' if (step_file_struct.align_method=='entrance') else 'tgt'
-    step_file_struct.prob_calc = str(step_file_struct.prob_calc)
+    ptype                           = 'cstep' if step_file_struct.prob_calc == misc.ProbabilityType.cumulative_step else ('cprob' if step_file_struct.prob_calc == misc.ProbabilityType.cumulative_prob else 'indept')
+    ic                              = '0.0' if step_file_struct.start_from_zero else '0.25'
+    st                              = 'stopfood' if step_file_struct.stop_at_food else 'continuefood'
+    align_method                    = 'ent' if (step_file_struct.align_method=='entrance') else 'tgt'
+    step_file_struct.prob_calc      = str(step_file_struct.prob_calc)
+    step_file_struct.arena_geometry = list_of_arr_to_arr_of_obj([struct_array_for_scipy('r_center,arena_radius,lattice_extent',*_get_step_prob_arena_geometry_fields(s)) for s in step_file_struct.arena_geometry])
+    #traj          = struct_array_for_scipy('mouse_r,t_food,run,totalruns',list_of_arr_to_arr_of_obj(traj_mouse_r),list_of_arr_to_arr_of_obj(traj_t_food),traj_run,traj_totalruns)
     filename_suffix = '_' + filename_suffix if len(filename_suffix) > 0 else ''
     out_fname       = 'stepmat_%s_L_%d_nstages_%d_ntrials_%d_Pinit_%s_%s_%s_align_%s%s.mat'%(step_file_struct.mouse_part,step_file_struct.L_lattice,nstages,ntrials,ic,ptype,st,align_method,filename_suffix)
     out_fname       = os.path.join(out_dir,out_fname)
@@ -87,8 +125,27 @@ def save_step_probability_file_struct(out_dir,step_file_struct,ntrials=None,file
                      dict(**step_file_struct),
                      long_field_names=True,do_compression=True)
 
-def save_step_probability_file(out_dir,param_struct,P,N,G,stage_trials,n_trials,r_target,r_mouse,t_to_food,mouse_id,trial_id,P_specific,mouse_id_spec,ntrials=None):
-    save_step_probability_file_struct(out_dir,tstep.get_step_probability_file_struct(param_struct,P,N,G,stage_trials,n_trials,r_target,r_mouse,t_to_food,mouse_id,trial_id,P_specific,mouse_id_spec),ntrials=ntrials)
+def _get_step_prob_arena_geometry_fields(arena_geometry):
+    # arena_geometry = misc.structtype(r_center=r_center,arena_radius=plib.get_arena_diameter_cm()/2.0,lattice_extent=misc.flatten_list([arena_dx,numpy.flip(arena_dy)]))
+    r_center       = numpy.empty(len(arena_geometry),dtype=object)
+    arena_radius   = numpy.empty(len(arena_geometry),dtype=object)
+    lattice_extent = numpy.empty(len(arena_geometry),dtype=object)
+    for k,s in enumerate(arena_geometry):
+        r_center[k]        =    s.r_center
+        arena_radius[k]    =    s.arena_radius
+        lattice_extent[k]  =    s.lattice_extent
+    return r_center,arena_radius,lattice_extent
+
+def save_step_probability_file(out_dir,param_struct,P,N,G,stage_trials,n_trials,r_target,r_mouse,
+                               t_to_food,mouse_id,trial_id,P_specific,mouse_id_spec,
+                               r_target_trial,r_target_previous_trial,r_target_alt_trial,r_target_rev_trial,r_target_revalt_trial,
+                               arena_geometry,ntrials=None):
+    save_step_probability_file_struct(out_dir,
+                                      tstep.get_step_probability_file_struct(param_struct,P,N,G,stage_trials,n_trials,r_target,r_mouse,
+                                                                             t_to_food,mouse_id,trial_id,P_specific,mouse_id_spec,
+                                                                             r_target_trial,r_target_previous_trial,r_target_alt_trial,r_target_rev_trial,r_target_revalt_trial,
+                                                                             arena_geometry),
+                                      ntrials=ntrials)
 
 def fix_step_probability_output_dir_structure(out_dir,n_trials):
     script = _get_fix_step_probability_output_dir_structure_script(n_trials)
@@ -191,7 +248,7 @@ def get_all_files(file_path,file_name_expr=None):
         else:
             raise ValueError('invalid file_path')
 
-def group_track_list(track_list,group_by='trial',get_key_group_func=None,sortinsideby_label=None,get_key_sortinsideby_func=None,sortgroups_label=None,get_key_sortgroups_func=None):
+def group_track_list(track_list,group_by='trial',get_key_group_func=None,sortinsideby_label=None,get_key_sortinsideby_func=None,sortgroups_label=None,get_key_sortgroups_func=None,return_group_keys=True):
     """
     this function groups track_list according to group_by field label, evaluating each track[group_by] according to get_key_group_func(track[group_by])
 
@@ -207,13 +264,15 @@ def group_track_list(track_list,group_by='trial',get_key_group_func=None,sortins
     means that
         grouped_tracks[j] -> all mice in trial j, sorted according to the int(mouse_number) value
     """
-    from collections import OrderedDict
+    #from collections import OrderedDict
     group_by                = group_by.lower()
     sortinsideby_label      = sortinsideby_label.lower() if misc.exists(sortinsideby_label)      else None
     sortgroups_label        = sortgroups_label.lower()   if misc.exists(sortgroups_label)        else None
     if misc.exists(sortgroups_label) and (not plib.get_track_file().IsField(sortgroups_label)):
         raise ValueError('group_track_list ::: sortgroups_label must be a field of track file')
     #assert (group_by in ['mouse','trial']),"group_by must be 'mouse' or 'trial'"
+    if misc.is_list_of_list(track_list):
+        track_list = list(misc.flatten_list(track_list, only_lists=True))
     if group_by == 'trial':
         key_label    = 'trial'              # outer key
         get_key      = plib.trial_to_number # outer key
@@ -230,7 +289,7 @@ def group_track_list(track_list,group_by='trial',get_key_group_func=None,sortins
         if misc.exists(sortinsideby_label) and (not plib.get_track_file().IsField(sortinsideby_label)):
             raise ValueError('group_track_list ::: sortinsideby_label must be a field of track file')
         key_label    = group_by                                                                                      # outer key
-        get_key      = get_key_group_func  if misc.exists(get_key_group_func)  else int                              # outer key
+        get_key      = get_key_group_func        if misc.exists(get_key_group_func)        else int                  # outer key
         key_sort     = sortinsideby_label        if misc.exists(sortinsideby_label)        else 'trial'              # inner key
         get_key_sort = get_key_sortinsideby_func if misc.exists(get_key_sortinsideby_func) else plib.trial_to_number # inner key
     
@@ -242,7 +301,10 @@ def group_track_list(track_list,group_by='trial',get_key_group_func=None,sortins
     track_list      = [ sorted([ f for f in track_list if get_key(f[key_label])==k ],key=lambda tr: get_key_sort(tr[key_sort])) for k in all_keys ]
     #if group_by == 'trial':
     all_keys        = [ m[0][key_label] for m in track_list ] # getting the original value of each key
-    return track_list,all_keys
+    if return_group_keys:
+        return track_list,all_keys
+    else:
+        return track_list
 
 def sort_track_list(track_list,sort_by='trial'):
     """
@@ -257,7 +319,7 @@ def sort_track_list(track_list,sort_by='trial'):
     else: # sort_by == 'mouse' or 'trial_id'
         field = 'mouse_number' if sort_by == 'mouse' else 'trial_id'
         get_value = lambda f: int(f[field])
-    value = [ get_value(f) for f in track_list ]
+    value      = [ get_value(f) for f in track_list ]
     track_list = [ f for _,f in sorted(zip(value, track_list), key=lambda pair: pair[0]) ]
     return track_list
 
@@ -562,6 +624,22 @@ def list_of_arr_to_arr_of_obj(X):
     for i,x in enumerate(X):
         Y[i] = x
     return Y
+
+def struct_array_for_scipy(field_names,*fields_data):
+    """
+    returns a data structure which savemat in scipy.io interprets as a MATLAB struct array
+    the order of field_names must match the order in which the remaining arguments are passed to this function
+    such that
+    s(j).(field_names(i)) == fields_data[i][j], identified by field_names[i]
+
+    field_names ->  comma-separated string listing the field names;
+                        'field1,field2,...' -> field_names(1) == 'field1', etc...
+    fields_data ->  each extra argument entry is a list with the data for each field of the struct
+                        fields_data[i][j] :: data for field i in the element j of the struct array: s(j).(field_names(i))
+    """
+    fn_list = field_names.split(',')
+    assert len(fn_list) == len(fields_data),'you must give one field name for each field data'
+    return numpy.core.records.fromarrays([f for f in fields_data],names=fn_list,formats=[object]*len(fn_list))
 
 def get_files_GUI(message='Select file...',path='',wildcard='*.npz',multiple=True,max_num_files=3):
     if not __HAS_WX__:

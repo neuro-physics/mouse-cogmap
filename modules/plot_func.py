@@ -31,8 +31,64 @@ import scipy.interpolate
 #     m_sd_se_tuple_X -> (mean,sd,se) of group X
 #     """
 
+def plot_stairs_with_edge(ax=None,data=None,edges=None,label='',fill=False,show_edges=True,edgecolor=None,facecolor=None,color=None,facealpha=1.0,edgealpha=1.0,**stairs_kwargs):
+    ax = ax if misc.exists(ax) else plt.gca()
+    assert misc.exists(data), "you must input some data"
+    if misc.exists(facecolor):
+        facecolor = numpy.array(matplotlib.colors.to_rgba(facecolor))
+    if misc.exists(edgecolor):
+        edgecolor = numpy.array(matplotlib.colors.to_rgba(edgecolor))
+    if misc.exists(color):
+        color     = numpy.array(matplotlib.colors.to_rgba(color))
+    if misc.exists(color): # overrides facecolor and edgecolor
+        edgecolor = color.copy()
+        facecolor = color.copy()
+    if misc.exists(facealpha):
+        facecolor[-1] = facealpha
+    if misc.exists(edgealpha):
+        edgecolor[-1] = edgealpha
+    if show_edges and fill:
+        ax.stairs(data,edges=edges,label='_fill_' + label,fill=True ,facecolor=facecolor,**stairs_kwargs)
+        ax.stairs(data,edges=edges,label=label           ,edgecolor=edgecolor,fill=False,**stairs_kwargs)
+    else:
+        ax.stairs(data,edges=edges,label=label,edgecolor=edgecolor,fill=fill,facecolor=facecolor,**stairs_kwargs)
 
-def plot_arena_grid(ax,G_or_L,line_color=None,line_style='--',show_grid_lines=True,grid_alpha=0.8,cmap_grid=None):
+def displace_bbox(bbox,dx=0.0,dy=0.0,dw=0.0,dh=0.0):
+    return bbox.from_bounds(bbox.xmin+dx,bbox.ymin+dy,bbox.width+dw,bbox.height+dh)
+
+def set_axes_property(axh,**axh_args):
+    for ax in axh.flatten():
+        ax.set(**axh_args)
+    return axh
+
+def widen_axes_distance(axh,dx=0.0,dy=0.0):
+    try:
+        is_1d = axh.ndim == 1
+    except:
+        return
+    try:
+        gs    = axh[0].get_gridspec() if is_1d else axh[0,0].get_gridspec()
+        nrows = gs.nrows
+        ncols = gs.ncols
+    except:
+        warnings.warn('widen_axes_distance :: axh :: axh has no get_gridspec() function... cannot determine rows or cols')
+        return
+    n_panels      = axh.size
+    is_horizontal = ncols == n_panels
+    if is_1d:
+        for i,ax in enumerate(axh):
+            d  = (dx*i,dy) if is_horizontal else (dx,dy*i)
+            p0 = displace_bbox(ax.get_position(),d[0],d[1])
+            ax.set_position(p0,which='both')
+    else:
+        for i in range(nrows):
+            for j in range(ncols):
+                p0 = displace_bbox(axh[i,j].get_position(),dx*j,dy*i)
+                axh[i,j].set_position(p0,which='both')
+    return axh
+
+
+def plot_arena_grid(ax,G_or_L,track=None,line_color=None,line_style='--',show_grid_lines=True,grid_alpha=0.8,cmap_grid=None):
     """
     plots a square grid centered on the center of the arena, going from -(arena_radius+2) to +(arena_radius+2) in both directions
     and having L squares per row and per column
@@ -41,7 +97,7 @@ def plot_arena_grid(ax,G_or_L,line_color=None,line_style='--',show_grid_lines=Tr
     """
     L = G_or_L if type(G_or_L) is int else G_or_L.shape[0]
     line_color = numpy.array((0,0,0,0.5),float) if line_color is None else numpy.asarray(line_color).astype(float)
-    X_arena_lim, Y_arena_lim = plib.get_arena_grid_limits()
+    X_arena_lim, Y_arena_lim = plib.get_arena_grid_limits(track=track)
     l = []
     if show_grid_lines:
         l_x = numpy.linspace(X_arena_lim[0],X_arena_lim[1],L+1)[1:-1]
@@ -94,7 +150,7 @@ def _annotate_boxplot(ax, x1_ind, x2_ind, data, data_max=None, dy=None, TXT=None
         ax.text((x1_plot_coord+x2_plot_coord)*.5, y0, TXT, **_get_kwargs(txt_args,ha='center', va=txt_va, color=col))
     return displace_y(y0,dy) #y0*dy if is_log_scale else y0+dy
 
-def plot_boxplot(ax,data,labels,colors=None,significance=None,data_std=None,is_log_scale=False,boxplotargs=None,errorbarargs=None):
+def plot_boxplot(ax,data,labels,colors=None,significance=None,data_std=None,is_log_scale=False,boxplotargs=None,errorbarargs=None,positions=None):
     """
     data         -> a list of variables (each element contains all the data points used to calculate the average of that element, etc )
     colors       -> list of colors for each entry in data
@@ -112,30 +168,33 @@ def plot_boxplot(ax,data,labels,colors=None,significance=None,data_std=None,is_l
     """
     #N = len(data)
     colors       = get_tab10_colors(len(data))             if type(colors)       is type(None) else colors
+    positions    = numpy.arange(len(data))                 if type(positions)    is type(None) else positions
     data_std     = misc.get_empty_list(len(data))          if type(data_std)     is type(None) else data_std
     #data_control = misc.get_empty_list(len(data))  if type(data_control) is type(None) else data_control
     boxplotargs  = dict()                                  if type(boxplotargs)  is type(None) else boxplotargs
     errorbarargs = dict()                                  if type(errorbarargs) is type(None) else errorbarargs
-    boxplotargs  = misc.set_default_kwargs(boxplotargs,width=0.2, meanline=True, showmeans=False, notch=False, boxprops=dict(linewidth=0.5,alpha=0.2), medianprops=dict(linewidth=3,color='k'),whiskerprops=dict(color=(0,0,0,0)), showcaps=False)
+    boxplotargs  = misc.set_default_kwargs(boxplotargs, patch_artist=True, vert=True, widths=0.2, meanline=True, showmeans=False, notch=False, boxprops=dict(linewidth=0.5,alpha=0.2), medianprops=dict(linewidth=3,color='k'),whiskerprops=dict(color=(0,0,0,0)), showcaps=False)
     errorbarargs = misc.set_default_kwargs(errorbarargs,fmt='o',linewidth=3)
-    data_labels_fake = [ str(k) for k in range(len(data)) ] 
-    color_palette    = { lab:cc for lab,cc in zip(data_labels_fake,colors) }
-    dfs = [ _get_dataframe_for_boxplot(lab,x,None) for x,lab in zip(data,data_labels_fake) ] #for x,lab,x_control in zip(data,labels,data_control)
-    dfm = dfs[0].append(dfs[1:])
-    ax = seaborn.boxplot(x='label', y='value', data=dfm, palette=color_palette, **boxplotargs) 
+    #data_labels_fake = [ k for k in positions ]
+    #color_palette    = { lab:cc for lab,cc in zip(data_labels_fake,colors) }
+    #dfs = [ _get_dataframe_for_boxplot(lab,x,None) for x,lab in zip(data,data_labels_fake) ] #for x,lab,x_control in zip(data,labels,data_control)
+    #dfm = dfs[0].append(dfs[1:])
+    #ax = seaborn.boxplot(x='label', y='value', data=dfm, palette=color_palette, **boxplotargs) 
+    bplot = ax.boxplot(data, labels=labels, positions=positions, **boxplotargs) 
+    for k,(box_patch,c) in enumerate(zip(bplot['boxes'],colors)):
+        box_patch.set_facecolor(c)
     ax.set_xticks(ticks=ax.get_xticks(),labels=labels)
     #ax = seaborn.boxplot(x='label', y='value', hue='is_control', data=dfm, **boxplotargs)# works for data_control, but I dont know how to change colors
     #ax = seaborn.boxplot(x='is_control', y='value', hue='label', data=dfm, palette=color_palette, **boxplotargs)
     get_data_std = lambda k,dd: data_std[k] if not(type(data_std[k]) is type(None)) else misc.nanstd(dd)
-    for k,dd in enumerate(data):
-        ax.errorbar(k, misc.nanmean(dd), yerr=get_data_std(k,dd), color=colors[k], **errorbarargs)
+    for k,(p,dd) in enumerate(zip(positions,data)):
+        ax.errorbar(p, misc.nanmean(dd), yerr=get_data_std(k,dd), color=colors[k], **errorbarargs)
     if not(type(significance) is type(None)):
         if len(significance)>0:
             mm=misc.nanmax(misc.asarray_nanfill(data).flatten())
             for i,ind in enumerate(significance):
-
                 for j in numpy.nonzero(ind)[0]:
-                    mm = _annotate_boxplot(ax,i,j,data,data_max=mm,is_log_scale=is_log_scale,color=colors[i])
+                    mm = _annotate_boxplot(ax,i,j,data,data_max=mm,is_log_scale=is_log_scale,color=colors[i],x1_plot_coord=positions[i],x2_plot_coord=positions[j])
     return ax
 
 def _get_dataframe_for_boxplot(label,x,x_control):
@@ -219,27 +278,52 @@ def get_gradient_between(c1,c2,N=None,use_matplotlib=True):
         return f
     
 
+def get_cmap_plasma_inv_lum(N=None,reverse=False):
+    c = numpy.array([(232,221,255,255),
+                     (255,167,253,255),
+                     (210,150,146,255),
+                     (146,146,150,255)],dtype=float)/255.0
+    if reverse:
+        c = numpy.flipud(c)
+    f = matplotlib.colors.LinearSegmentedColormap.from_list('Custom',c)
+    if misc.exists(N):
+        return f(numpy.linspace(0.0,1.0,N))
+    else:
+        return f
+
 def get_gradient(N=None,color='red',cmap_name=None):
     if misc.exists(cmap_name):
         f = plt.get_cmap(cmap_name)
     else:
-        color = color.lower()
-        assert color in ['red','green','blue','blue2','yellow','purple','orange'], "color must be 'red','green','blue','blue2','yellow','purple','orange'"
-        if color == 'red':
-            c = numpy.array([[244,138,140],[133,27,30]],dtype=float)/255.0
-        elif color == 'blue':
-            c = numpy.array([[138,140,244],[27,30,133]],dtype=float)/255.0
-        elif color == 'blue2':
-            c = numpy.array([[153,217,247],[9,91,130]],dtype=float)/255.0
-        elif color == 'green':
-            c = numpy.array([[0.698,0.83922,0.4863],[0.33,0.47,0.13]],dtype=float)
-        elif color == 'yellow':
-            c = numpy.array([[234,221,121],[140,128,36]],dtype=float)/255.0
-        elif color == 'purple':
-            c = numpy.array([[227,168,247],[92,4,124]],dtype=float)/255.0
-        elif color == 'orange':
-            c = numpy.array([[247, 183, 106],[117, 78, 31]],dtype=float)/255.0
-        f = scipy.interpolate.interp1d(numpy.arange(2).astype(float),c,kind='linear',axis=0,copy=False)
+        if type(color) is str:
+            color = color.lower()
+            color_str_options = ['red','green','blue','blue2','yellow','purple','orange']
+            if (color in color_str_options):
+                if color == 'red':
+                    c = numpy.array([[244,138,140],[133,27,30]],dtype=float)/255.0
+                elif color == 'blue':
+                    c = numpy.array([[138,140,244],[27,30,133]],dtype=float)/255.0
+                elif color == 'blue2':
+                    c = numpy.array([[153,217,247],[9,91,130]],dtype=float)/255.0
+                elif color == 'green':
+                    c = numpy.array([[0.698,0.83922,0.4863],[0.33,0.47,0.13]],dtype=float)
+                elif color == 'yellow':
+                    c = numpy.array([[234,221,121],[140,128,36]],dtype=float)/255.0
+                elif color == 'purple':
+                    c = numpy.array([[227,168,247],[92,4,124]],dtype=float)/255.0
+                elif color == 'orange':
+                    c = numpy.array([[247, 183, 106],[117, 78, 31]],dtype=float)/255.0
+                f = scipy.interpolate.interp1d(numpy.arange(2).astype(float),c,kind='linear',axis=0,copy=False)
+            else:
+                warnings.warn('Assuming color is a matplotlib colormap')
+                try:
+                    f = get_gradient(cmap_name=color)
+                except:
+                    raise ValueError("color must be either a valid matplotlib colormap or one of %s"%(str(color_str_options)[1:-1]))
+        else:
+            # assuming color is a function
+            warnings.warn('Assuming color is a function')
+            f = color
     if misc.exists(N):
         return f(numpy.linspace(0.0,1.0,N))
     else:
@@ -415,7 +499,11 @@ def _add_colorbar(ax,cmap,label='',w_fraction_of_ax=0.02,h_fraction_of_ax=0.15,p
         cmap = matplotlib.colors.ListedColormap(cmap)
     if type(bbox_ref) is type(None):
         bbox_ref = ax.get_position()
-    cax = ax.get_figure().add_axes([bbox_ref.xmin+bbox_ref.width*(p0[0]-w_fraction_of_ax-0.025),bbox_ref.ymin+bbox_ref.height*(p0[1]-h_fraction_of_ax-0.015),bbox_ref.width*w_fraction_of_ax,bbox_ref.height*h_fraction_of_ax],label='color_traj')
+    pos = [bbox_ref.xmin + bbox_ref.width *(p0[0]-w_fraction_of_ax-0.025), #x
+           bbox_ref.ymin + bbox_ref.height*(p0[1]-h_fraction_of_ax-0.015), #y
+           bbox_ref.width *w_fraction_of_ax, #w
+           bbox_ref.height*h_fraction_of_ax] #h
+    cax = ax.get_figure().add_axes(pos,label='color_traj')
     #cax = mpl_toolkits.axes_grid1.inset_locator.inset_axes(ax,width="5%",height="15%",loc='upper right',bbox_to_anchor=(1,1,1,1),bbox_transform=ax.transAxes,borderpad=0)
     #cax.set_title(cbar_label)
     title_txt,title_args = _get_label(cbarArgs,'title')
@@ -429,7 +517,7 @@ def _add_colorbar(ax,cmap,label='',w_fraction_of_ax=0.02,h_fraction_of_ax=0.15,p
         cbar.set_ticklabels(minmax_tick_labels,**ticklabels_args)
     return cbar,cax
 
-def plot_mouse_trajectory(ax,track,mouse_part=None,show_start=True,show_target=True,show_reverse_target=False,show_alt_target=False,show_reverse_alt_target=False,color='tab:blue',line_gradient_variable='none',linewidth=1.5,alpha=1.0,startArgs=None,targetArgs=None,targetAltArgs=None,targetRevArgs=None,targetAltRevArgs=None,show_colorbar=True):
+def plot_mouse_trajectory(ax,track,mouse_part='nose',show_start=True,show_target=True,show_reverse_target=False,show_alt_target=False,show_reverse_alt_target=False,color='tab:blue',line_gradient_variable='none',linewidth=1.5,alpha=1.0,startArgs=None,targetArgs=None,targetAltArgs=None,targetRevArgs=None,targetAltRevArgs=None,show_colorbar=True):
     """
     plots mouse trajectory
 
@@ -447,7 +535,7 @@ def plot_mouse_trajectory(ax,track,mouse_part=None,show_start=True,show_target=T
     is_line_gradient_str_eq = lambda lg,val: is_valid_str_line_grad_value and (lg == val)
     if is_valid_str_line_grad_value:
         line_gradient_variable = line_gradient_variable.lower()
-    mouse_part = 'center' if mouse_part is None else mouse_part
+    mouse_part = 'nose' if mouse_part is None else mouse_part
     if not (mouse_part in ['center','nose','tail']):
         raise ValueError('mouse_part must be center, nose or tail')
     lab = 'r_'+mouse_part
@@ -560,6 +648,12 @@ def _get_label(args,label_arg_name='label'):
         return args.pop(label_arg_name,None), _get_kwargs(args.pop(label_arg_name+'Args',None))
     return None,dict()
 
+def _get_first_ax(ax):
+    try:
+        return ax.flatten()[0]
+    except AttributeError:
+        return ax
+
 def plot_all_tracks_2targets(track_complete,hole_horizon,time_delay_after_food,traj1Args=None,traj2Args=None,
                              start_align_vector=None,trim_trajectories=True,return_panel_ind=False,
                              show_arena_holes=True,probe_title='',fig_size=None,axes_to_plot=None,
@@ -572,7 +666,13 @@ def plot_all_tracks_2targets(track_complete,hole_horizon,time_delay_after_food,t
     traj1Args          = misc.set_default_kwargs(traj1Args,mouse_part='nose',show_start=True ,show_target=True ,show_alt_target=True ,color='r')
     traj2Args          = misc.set_default_kwargs(traj2Args,mouse_part='nose',show_start=False,show_target=False,show_alt_target=False,color='b')
     title_args         = misc._get_kwargs(title_args)
-    nrows_ncols_tuple  = nrows_ncols_tuple if misc.exists(nrows_ncols_tuple) else (2,4) # 2 rows, 4 cols
+    if not misc.exists(nrows_ncols_tuple):
+        if misc.exists(axes_to_plot):
+            axgridspec         = _get_first_ax(axes_to_plot).get_gridspec()
+            nrows_ncols_tuple  = (axgridspec.nrows,axgridspec.ncols)
+        else:
+            nrows_ncols_tuple  = misc.divide_into_factors(len(track_complete))
+    #nrows_ncols_tuple  = nrows_ncols_tuple if misc.exists(nrows_ncols_tuple) else (2,4) # 2 rows, 4 cols
     if show_speed:
         nrows_ncols_tuple = (2*nrows_ncols_tuple[0],nrows_ncols_tuple[1]) # each arena has its trajectory speed plotted below it
 
@@ -592,6 +692,9 @@ def plot_all_tracks_2targets(track_complete,hole_horizon,time_delay_after_food,t
         fig,axes_to_plot = plt.subplots(nrows=nrows_ncols_tuple[0],ncols=nrows_ncols_tuple[1],figsize=fig_size)
     
     ax = axes_to_plot # = axes_to_plot.flatten()
+    if ax.ndim == 1:
+        ax = ax.reshape((1,ax.shape[0]))
+
     l = []
     #for i in range(2):
     #    for j in range(4):
@@ -670,9 +773,9 @@ def _plot_hole_check_spatial_distribution(track,r,r_count,r_target,r_mean,r_eigd
                                           r_target2     = None,
                                           ax            = None,
                                           panel_label   = ''         , panel_label_args   = None,
-                                          target1_label = ''         , target1_label_args = None,
-                                          target2_label = ''         , target2_label_args = None,
-                                          show_start    = True       , start_args         = None, start_label_args = None,
+                                          target1_label = ''         , target1_args       = None, target1_label_args = None,
+                                          target2_label = ''         , target2_args       = None, target2_label_args = None,
+                                          show_start    = True       , start_args         = None, start_label_args   = None,
                                           is_dark_bg    = True       ,
                                           cmap_name     = 'inferno'  ,
                                           cmap_start_fraction = 0.0  ,
@@ -684,31 +787,43 @@ def _plot_hole_check_spatial_distribution(track,r,r_count,r_target,r_mean,r_eigd
                                           alpha_target2 = 0.35       ,
                                           show_arena    = True       ,
                                           scatter_args  = None       ,
-                                          is_target1_present =   True,
-                                          is_target2_present =   True):
+                                          is_target1_present  =   True,
+                                          is_target2_present  =   True,
+                                          show_holes          =  False,
+                                          holes_args          =   None,
+                                          ellipse_args        =   None,
+                                          ellipse_center_args =   None):
     """
     """
     if not misc.exists(ax):
         ax=plt.gca()
     
+    
     get_color_local = lambda c_is_dark,c_not_dark: c_is_dark if is_dark_bg else c_not_dark
-    color_bg_dark   = color_bg_dark if misc.exists(color_bg_dark) else plt.get_cmap(cmap_name)(numpy.linspace(0,1,100))[0]
-    color_target1   = color_target1 if misc.exists(color_target1) else numpy.array((255, 66, 66,255))/255
-    color_target2   = color_target2 if misc.exists(color_target2) else numpy.array(( 10, 30,211,255))/255
+
+    #color_bg_dark   = color_bg_dark if misc.exists(color_bg_dark) else plt.get_cmap(cmap_name)(numpy.linspace(0,1,100))[0]
+    if not misc.exists(color_bg_dark):
+        if type(cmap_name) is str:
+            color_bg_dark = plt.get_cmap(cmap_name)(numpy.linspace(0,1,100))[0]
+        else:
+            color_bg_dark = cmap_name(numpy.linspace(0,1,100))[0]
+    color_target1         = color_target1 if misc.exists(color_target1) else numpy.array((255, 66, 66,255))/255
+    color_target2         = color_target2 if misc.exists(color_target2) else numpy.array(( 10, 30,211,255))/255
 
     if show_start:
         start_label_args = _get_kwargs(start_label_args, fontsize=12,va='bottom',ha='right',color=get_color_local('w','k'),pad=(-4,0))
         start_args       = _get_kwargs(start_args      , marker='s',markeredgewidth=3,markersize=10,color=get_color_local('w','k'),label='Start',labelArgs=start_label_args)
 
     if show_arena:
-        plot_arena_sketch(track ,showHoles=False,ax=ax,bgCircleArgs=dict(fill=True,edgecolor=get_color_local('w','k'),facecolor=get_color_local(color_bg_dark,'w')),showStart=show_start, startArgs=start_args)
+        holes_args = _get_kwargs(holes_args,markeredgewidth=0.5,color=0.6*numpy.ones(3))
+        plot_arena_sketch(track ,showHoles=show_holes,ax=ax,bgCircleArgs=dict(fill=True,edgecolor=get_color_local('w','k'),facecolor=get_color_local(color_bg_dark,'w')),showStart=show_start, startArgs=start_args, holesArgs=holes_args)
     if len(panel_label) > 0:
         ax.set_title(panel_label, **_get_kwargs(panel_label_args,fontsize=14, fontweight='bold', color=get_color_local('w','k')))
     
     T_r_count = misc.LinearTransf((r_count.min(),r_count.max()),(cmap_start_fraction,r_count.max()))
 
     scatter_args = _get_kwargs(scatter_args)
-    min_alpha = scatter_args.pop('min_alpha',None)
+    min_alpha    = scatter_args.pop('min_alpha',None)
     alpha_values = ((1.0-min_alpha)*r_count+min_alpha) if misc.exists(min_alpha) else 1.0
     ax.scatter(r[:,0] ,r[:,1] ,s=point_size*r_count,c=get_gradient(cmap_name=cmap_name)(T_r_count(r_count)),**_get_kwargs(scatter_args,marker='o',edgecolors='none',alpha=alpha_values   ))
     if misc.exists(r_target):
@@ -722,7 +837,10 @@ def _plot_hole_check_spatial_distribution(track,r,r_count,r_target,r_mean,r_eigd
             fill_style  = 'none'
             mface_color = 'none'
             medge_width = 2
-        plot_point(r_target ,fmt='o',color=edge_color,markersize=7, ax=ax , pointArgs=dict(fillstyle=fill_style,markerfacecolor=mface_color,markeredgewidth=medge_width,alpha=alpha_target1,label=target1_label,labelArgs=_get_kwargs(target1_label_args, fontsize=16, va='bottom',ha='left' , fontweight='bold',color=color_target1 ,pad=( 2,2),alpha=alpha_target1) ))
+        target1_label_args        = _get_kwargs(target1_label_args, fontsize=16, va='bottom',ha='left' , fontweight='bold',color=color_target1 ,pad=( 2,2),alpha=alpha_target1)
+        target1_args              = _get_kwargs(target1_args      , fillstyle=fill_style,markerfacecolor=mface_color,markeredgewidth=medge_width,alpha=alpha_target1,label=target1_label,labelArgs=dict())
+        target1_args['labelArgs'] = target1_label_args
+        plot_point(r_target ,fmt='o',color=edge_color,markersize=7, ax=ax , pointArgs=target1_args)
     if misc.exists(r_target2):
         if is_target2_present:
             edge_color  = get_color_local('w','k')
@@ -734,8 +852,14 @@ def _plot_hole_check_spatial_distribution(track,r,r_count,r_target,r_mean,r_eigd
             fill_style  = 'none'
             mface_color = 'none'
             medge_width = 2
-        plot_point(r_target2,fmt='o',color=edge_color,markersize=7, ax=ax , pointArgs=dict(fillstyle=fill_style,markerfacecolor=mface_color,markeredgewidth=medge_width,alpha=alpha_target2,label=target2_label,labelArgs=_get_kwargs(target2_label_args, fontsize=16, va='bottom',ha='left' , fontweight='bold',color=color_target2 ,pad=( 2,2),alpha=alpha_target2) ))
-    draw_ellipse(r_mean , r_eigdir , r_disp , ax=ax, show_center=True, center_args=dict(markeredgewidth=3,color=get_color_local('w','k'),marker='x'),facecolor='none', edgecolor=get_color_local('w','k'), linestyle='--', linewidth=2)
+        target2_label_args        = _get_kwargs(target2_label_args, fontsize=16, va='bottom',ha='left' , fontweight='bold',color=color_target2 ,pad=( 2,2),alpha=alpha_target2)
+        target2_args              = _get_kwargs(target2_args      , fillstyle=fill_style,markerfacecolor=mface_color,markeredgewidth=medge_width,alpha=alpha_target2,label=target2_label,labelArgs=dict() )
+        target2_args['labelArgs'] = target2_label_args
+        plot_point(r_target2,fmt='o',color=edge_color,markersize=7, ax=ax , pointArgs=target2_args)
+    ellipse_args        = _get_kwargs(ellipse_args,show_center=True, facecolor='none', edgecolor=get_color_local('w','k'), linestyle='--', linewidth=2)
+    ellipse_center_args = _get_kwargs(ellipse_center_args,markeredgewidth=3,color=get_color_local('w','k'),marker='x')
+    ellipse_args['center_args'] = ellipse_center_args
+    draw_ellipse(r_mean , r_eigdir , r_disp , ax=ax, **ellipse_args)
     return ax
 
 def plot_dispersion(r_mean, r_eigdir, r_disp, ax=None, show_center=True, color=None, marker=None, center_args=None, **ellipse_args):

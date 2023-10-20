@@ -17,6 +17,7 @@ import sys
 import copy
 import numpy
 import argparse
+import warnings
 import functools
 import modules.io as io
 import modules.plot_func as pltt
@@ -85,6 +86,7 @@ def main():
     parser = argparse.ArgumentParser(description='Plots 1 up to 10 mouse tracks... If more than 1 entrance is present, only the first arena will be plotted.')
     parser.add_argument('track'            , nargs='*', metavar='TRACK_MAT_FILE', type=str, default=[''] , help='1 up to 10 track files to be plotted')
     parser.add_argument('-stopfood'        , required=False, action='store_true', default=False, help='if set, stops trajectories at food site')
+    parser.add_argument('-stoprel'         , required=False, action='store_true', default=False, help='if set, stops trajectories at the reverse target (REL -- rotationally equivalent location)')
     parser.add_argument('-showpic'         , required=False, action='store_true', default=False, help='if set, shows the picture of the real arena in the background')
     parser.add_argument('-showholes'       , required=False, action='store_true', default=False, help='if set, shows the hole positions of the arena with gray circles')
     parser.add_argument('-showrel'         , required=False, action='store_true', default=False, help='if set, shows the REL (ROTATED EQUIVALENT LOCATION) which is not the target, but mice follow if they are rotated')
@@ -92,7 +94,7 @@ def main():
     parser.add_argument('-showorigin'      , required=False, action='store_true', default=False, help='if set, shows the (0,0) point, the origin of the reference frame')
     parser.add_argument('-showspeed'       , required=False, action='store_true', default=False, help='if set, shows a plot of the mouse velocity versus time')
     parser.add_argument('-showchecks'      , required=False, action='store_true', default=False, help='if set, shows mouse checking behavior')
-    parser.add_argument('-trim'            , required=False, action='store_true', default=False, help='if set, trims trajectory after visit to either of the target or alternative target')
+    parser.add_argument('-trim'            , required=False, action='store_true', default=False, help='if set, trims trajectory after visit to either of the target or alternative target (2-targets experiment; not good for REL)')
     parser.add_argument('-align'           , required=False, action='store_true', default=False, help='if set, aligns the entrance of all experiments with the top of the arena')
     parser.add_argument('-L'               , required=False, nargs=1, metavar='int'        , type=int   , default=[0]      ,help='number of squares in one side of the arena grid (if zero, no grid is shown); grid will the sum of all input files')
     parser.add_argument('-lattalpha'       , required=False, nargs=1, metavar='float'      , type=float , default=[1.0]    ,help='transparency of the lattice')
@@ -126,7 +128,8 @@ def main():
     if args.track is None:
         raise ValueError('You must input at least one track file...')
 
-    tracks = [ io.load_trial_file(p,remove_after_food=args.stopfood) for p in args.track ]
+
+    tracks = [ io.load_trial_file(p,remove_after_food=False) for p in args.track ]
 
     # debug
     #for fn,tr in zip(args.track,tracks):
@@ -159,9 +162,17 @@ def main():
         rotation_matrix = tracks_R[0].R
         tracks          = [ tr.track for tr in tracks_R ]
 
-    if args.trim:
+    if args.stopfood:
+        tracks = [ tran.remove_path_after_food(tr,r_target=tr.r_target,return_t_to_food=False,force_main_target=True,hole_horizon=args.trimhorizon[0],time_delay_after_food=args.trimdelay[0]) for tr in tracks ]
+        if args.trim or args.stoprel:
+            warnings.warn("'trim' and 'stoprel' are ignored")
+    elif args.trim:
         tracks = [ tran.remove_path_after_food(tr,force_main_target=False,hole_horizon=args.trimhorizon[0],time_delay_after_food=args.trimdelay[0],copy_tracks=False) for tr in tracks ]
-    
+        if args.stoprel:
+            warnings.warn("'stoprel' ignored")
+    elif args.stoprel:
+        tracks = [ tran.remove_path_after_food(tr,r_target=tr.r_target_reverse,return_t_to_food=False,force_main_target=False,hole_horizon=args.trimhorizon[0],time_delay_after_food=args.trimdelay[0]) for tr in tracks ]
+
     if args.showchecks:
         use_velocity_minima  = args.checksmethod[0] == 'minv'
         args.checksmethod[0] = 'ampv' if use_velocity_minima else args.checksmethod[0]
@@ -177,14 +188,14 @@ def main():
     G = numpy.array([])
     if args.L[0] > 0:
         L = args.L[0]
-        G = functools.reduce(lambda A,B:A+B,[ tstep.count_number_of_steps_in_lattice(tr.time,tr.r_nose,L)[1] for tr in tracks ]) # sum all the grid matrices
+        G = functools.reduce(lambda A,B:A+B,[ tstep.count_number_of_steps_in_lattice(tr.time,tr.r_nose,L,r_center=tr.r_arena_center)[1] for tr in tracks ]) # sum all the grid matrices
 
 
     show_alt_target = numpy.any([ not numpy.any(numpy.isnan(tr.r_target_alt)) for tr in tracks ])
 
     ax = pltt.plot_arena_sketch(tracks[0],showAllEntrances=not args.align,arenaPicture=arena_pic,showHoles=args.showholes)
     if args.L[0] > 0:
-        pltt.plot_arena_grid(ax,G,line_color=(0.8,0.8,0.8,args.lattgridalpha[0]),show_grid_lines=args.showgrid,grid_alpha=args.lattalpha[0])
+        pltt.plot_arena_grid(ax,G,track=tracks[0],line_color=(0.8,0.8,0.8,args.lattgridalpha[0]),show_grid_lines=args.showgrid,grid_alpha=args.lattalpha[0])
     if use_color:
         pltt.plot_mouse_trajectory(ax,tracks,'nose',color=color_map,line_gradient_variable=line_color_feat,linewidth=2,show_reverse_target=args.showrel,show_alt_target=show_alt_target)
     else:

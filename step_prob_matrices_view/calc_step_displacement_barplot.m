@@ -4,12 +4,12 @@ close all
 set(0, 'defaulttextfontname', 'Arial')
 set(0, 'defaultaxesfontname', 'Arial')
 
-mouse_dir_ft          = '../step_prob_matrices/fixed_target';
-mouse_dir_rt          = '../step_prob_matrices/relative_target';
-mouse_dir_l1          = '../step_prob_matrices/two_target_no_cues_tgt1';
-mouse_dir_l2          = '../step_prob_matrices/two_target_no_cues_tgt2_typical_mice';
-mouse_dir_p2          = '../step_prob_matrices/two_target_no_cues_probe2_A-B_typical_mice';
-mouse_dir_p2_complete = '../step_prob_matrices/two_target_no_cues_probe2_typical_mice';
+mouse_dir_ft          = '../step_prob_matrices/fixed_target_jackknife';
+mouse_dir_rt          = '../step_prob_matrices/relative_target_jackknife';
+mouse_dir_l1          = '../step_prob_matrices/two_target_no_cues_tgt1_jackknife_typical_mice';
+mouse_dir_l2          = '../step_prob_matrices/two_target_no_cues_tgt2_jackknife_typical_mice';
+mouse_dir_p2          = '../step_prob_matrices/two_target_no_cues_probe2_A-B_jackknife_typical_mice';
+%mouse_dir_p2_complete = '../step_prob_matrices/two_target_no_cues_probe2_typical_mice';
 
 outputDir    = '../figs/paper/step_prob_typical_mouse';
 
@@ -32,7 +32,7 @@ input_files_rt = fullfile(mouse_dir_rt,'independent/ntrials_14/stopfood/Pinit025
 input_files_l1 = fullfile(mouse_dir_l1,'independent/ntrials_18/stopfood/Pinit025',sprintf('stepmat_nose_L_%g_nstages_18_ntrials_18_Pinit_0.25_indept_stopfood_align_ent.mat',L));
 input_files_l2 = fullfile(mouse_dir_l2,'independent/ntrials_8/stopfood/Pinit025' ,sprintf('stepmat_nose_L_%g_nstages_8_ntrials_8_Pinit_0.25_indept_stopfood_align_ent.mat',L))  ;
 input_files_p2 = fullfile(mouse_dir_p2,'independent/ntrials_1/stopfood/Pinit025' ,sprintf('stepmat_nose_L_%g_nstages_1_ntrials_1_Pinit_0.25_indept_stopfood_align_ent.mat',L))  ;
-input_files_p2_complete = fullfile(mouse_dir_p2_complete,'independent/ntrials_1/stopfood/Pinit025' ,sprintf('stepmat_nose_L_%g_nstages_1_ntrials_1_Pinit_0.25_indept_stopfood_align_ent.mat',L))  ;
+%input_files_p2_complete = fullfile(mouse_dir_p2_complete,'independent/ntrials_1/stopfood/Pinit025' ,sprintf('stepmat_nose_L_%g_nstages_1_ntrials_1_Pinit_0.25_indept_stopfood_align_ent.mat',L))  ;
 
 
 d = load(input_files_ft);
@@ -43,19 +43,20 @@ all_trials_rt = import.import_mouse_stepmat(input_files_rt,'mouse');
 all_trials_l1 = import.import_mouse_stepmat(input_files_l1,'mouse',[1,1]);
 all_trials_l2 = import.import_mouse_stepmat(input_files_l2,'mouse');
 all_trials_p2 = import.import_mouse_stepmat(input_files_p2,'mouse');
-all_trials_p2_complete = import.import_mouse_stepmat(input_files_p2_complete,'mouse');
+%all_trials_p2_complete = import.import_mouse_stepmat(input_files_p2_complete,'mouse');
 
 G1_l1       = arena.calc_prob_gradient_with_positions(all_trials_l1.sites_per_stage{1},all_trials_l1.simParam.L,true);
 G2_l1       = arena.calc_prob_gradient_with_positions(all_trials_l1.sites_per_stage{14},all_trials_l1.simParam.L,true);
 G1_l2       = arena.calc_prob_gradient_with_positions(all_trials_l2.sites_per_stage{1},all_trials_l2.simParam.L,true);
 G2_l2       = arena.calc_prob_gradient_with_positions(all_trials_l2.sites_per_stage{8},all_trials_l2.simParam.L,true);
 G1_p2       = arena.calc_prob_gradient_with_positions(all_trials_p2.sites_per_stage{1},all_trials_p2.simParam.L,true);
-G1_p2_compl = arena.calc_prob_gradient_with_positions(all_trials_p2_complete.sites_per_stage{1},all_trials_p2_complete.simParam.L,true);
+G1_p2_compl = G1_p2       ;
+%G1_p2_compl = arena.calc_prob_gradient_with_positions(all_trials_p2_complete.sites_per_stage{1},all_trials_p2_complete.simParam.L,true);
 
 dist_AB            = 9; % distance between A and B targets in lattice coordinates
 n_bootstrp_samples = 10;
 
-G = {G1_l1,G2_l1,G1_l2,G2_l2,G1_p2,G1_p2_compl};
+G            = { G1_l1,     G2_l1,        G1_l2,      G2_l2,        G1_p2,      G1_p2_compl};
 trial_labels = {'Trial 1-A','Trial 14-A','Trial 1-B', 'Trial 8-B', 'Probe A-B', 'Random Probe A-B'};
 
 
@@ -79,4 +80,5 @@ step_displacement(end+1)        = mean(sample_step_displacement{end});
 step_displacement_std(end+1)    = std(sample_step_displacement{end});
 
 README = 'The variables contain: sample_step_displacement -> bootstrap samples for the step displacement of each trial; step_displacement -> true total percentual displacement of each trial; step_displacement_std -> bootstrap stddev of total percentual displacement of each trial; trial_labels -> label that correspond to each entry in each of the displacement variables; L -> lattice size used to calculate the gradients; max_steps -> 4(L^2-L) is the total number of allowed steps in a lattice of lateral size L; dist_AB -> lattice distance between A and B targets';
+fprintf([strrep(strrep(README,';',';\n'),':',':\n\n'),'\n']);
 save('../step_prob_matrices/step_gradient_displacement_boxplot_data.mat','sample_step_displacement','step_displacement','step_displacement_std','trial_labels','README','L','max_steps','dist_AB');

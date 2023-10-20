@@ -1,4 +1,4 @@
-function [qh,ph,food_start_ph,ax,X,Y,G] = plot_prob_gradient(ax,sites,simParam,use_grid_visits_as_color,colorMap,quiverArgs,pcolorArgs,startArgs,targetArgs,showPreviousTarget,prevTargetArgs,showGradientMagnitude)
+function [qh,ph,food_start_ph,ax,X,Y,G] = plot_prob_gradient(ax,sites,simParam,use_grid_visits_as_color,colorMap,quiverArgs,pcolorArgs,startArgs,targetArgs,showPreviousTarget,prevTargetArgs,showGradientMagnitude,sites_jackknife,show_jk_avg,calc_significant_path_args,use_color_quiver)
 % [h_sites,h_steps,food_start_ph] = plot_arena(ax,sites,simParam,colorMapSites,colorMapSteps,minmaxSiteMarkerSize,minmaxStepLineWidth,siteArgs,stepArgs)
     if isempty(ax)
         fh = figure;
@@ -35,6 +35,23 @@ function [qh,ph,food_start_ph,ax,X,Y,G] = plot_prob_gradient(ax,sites,simParam,u
     if (nargin < 12) || isempty(showGradientMagnitude)
         showGradientMagnitude = true;
     end
+    if (nargin < 13) || isempty(sites_jackknife)
+        sites_jackknife = {};
+    end
+    if (nargin < 14) || isempty(show_jk_avg)
+        show_jk_avg = false;
+    end
+    if (nargin < 15) || isempty(calc_significant_path_args)
+        calc_significant_path_args = {30*pi/180,'mean'}; % refer to arena.calc_significant_path
+    end
+    if (nargin < 16) || isempty(use_color_quiver)
+        use_color_quiver = true;
+    end
+    
+    if use_color_quiver
+        showGradientMagnitude = false;
+    end
+    
     startArgs      = func.get_args_set_default(startArgs     ,'DisplayName','start'      ,'MarkerSize',8,'Marker','s','MarkerFaceColor','none','Color','w','LineWidth',3,'Padding',[0,-0.5]);
     targetArgs     = func.get_args_set_default(targetArgs    ,'DisplayName','target'     ,'MarkerSize',5,'Marker','s','MarkerFaceColor','none','Color','w','LineWidth',3,'Padding',[0,0]);
     prevTargetArgs = func.get_args_set_default(prevTargetArgs,'DisplayName','target_prev','MarkerSize',5,'Marker','s','MarkerFaceColor','none','Color',[34,201,98]./255,'LineWidth',3,'Padding',[0,0]);
@@ -44,12 +61,35 @@ function [qh,ph,food_start_ph,ax,X,Y,G] = plot_prob_gradient(ax,sites,simParam,u
         colorMap = colorMap(numel(step_val));
     end
     
+    pcolor_facecolor = func.getParamValue('facecolor',pcolorArgs);
+    dx_pcolor = 0;
+    dy_pcolor = 0;
+    if ~isempty(pcolor_facecolor)
+        if strcmpi(pcolor_facecolor,'flat')
+            dx_pcolor = -0.5;
+            dy_pcolor = -0.5;
+        end
+    end
+    if use_grid_visits_as_color
+        dx_pcolor = -0.5;
+        dy_pcolor = -0.5;
+    end
+    
     %c_steps_transf = getTransformToIndex(step_val,size(colorMap,1));
     %sz_steps_transf = getLinearTransform(step_val, minmaxStepLineWidth);
-    
     [y,x] = ind2sub(simParam.L,(1:numel(sites))'); % lattice position (m,n) for site i
     [u,v] = arena.calc_prob_gradient(sites,simParam.L);
-    G=[u,v]; % gradient vector G(i,:) -> gradient at x(i),y(i)
+    G     = [u,v]; % gradient vector G(i,:) -> gradient at x(i),y(i)
+    if ~isempty(sites_jackknife)
+        [Gm,k_significant] = arena.calc_significant_path(sites_jackknife,calc_significant_path_args{:});
+        if show_jk_avg
+            G = Gm;
+        else
+            G(~k_significant,:) = 0;
+        end
+        u = G(:,1);
+        v = G(:,2);
+    end
     hold(ax,'on');
     ph=gobjects;
     if use_grid_visits_as_color
@@ -63,7 +103,7 @@ function [qh,ph,food_start_ph,ax,X,Y,G] = plot_prob_gradient(ax,sites,simParam,u
         Y(end,:) = Y(end-1,:)+1;
         C = func.expandMatrix(reshape(p_visit,simParam.L),simParam.L+1);
         if showGradientMagnitude
-            ph=pcolor(ax,X,Y,C);
+            ph=pcolor(ax,X+dx_pcolor,Y+dy_pcolor,C);
         end
     else
         X  = func.repeat_edges(reshape(x,simParam.L));
@@ -78,7 +118,7 @@ function [qh,ph,food_start_ph,ax,X,Y,G] = plot_prob_gradient(ax,sites,simParam,u
         C(:,1)   = zeros(size(C,1),1);
         C(:,end) = zeros(size(C,1),1);
         if showGradientMagnitude
-            ph = pcolor(ax,X,Y,C);
+            ph = pcolor(ax,X+dx_pcolor,Y+dy_pcolor,C);
             ph.FaceColor='interp';
         end
     end
@@ -89,7 +129,18 @@ function [qh,ph,food_start_ph,ax,X,Y,G] = plot_prob_gradient(ax,sites,simParam,u
         end
         colormap(ax,colorMap);
     end
-    qh=quiver(ax,x,y,u,v,'LineWidth',1.4,'Color','k',quiverArgs{:});
+    % https://www.mathworks.com/matlabcentral/answers/828465-quiver-with-color-add-on % color each quiver arrow differently
+    
+    if use_color_quiver
+        qh = plot_func.quivercolor(ax,x,y,u,v,vecnorm(G')',colorMap,'LineWidth',1.4,quiverArgs{:});
+    else
+        [scale_factor,quiverArgs] = func.getParamValue('scale',quiverArgs,true); % deletes color from varargin
+        if isempty(scale_factor)
+            qh = quiver(ax,x,y,u,v,'LineWidth',1.4,'Color','k',quiverArgs{:});
+        else
+            qh = quiver(ax,x,y,u,v,scale_factor,'LineWidth',1.4,'Color','k',quiverArgs{:});
+        end
+    end
     
     food_ph  = plot_func.plot_lattice_site(ax,simParam.L,simParam.food_site,targetArgs{:});
     start_ph = plot_func.plot_lattice_site(ax,simParam.L,arena.get_start_position(simParam.start_pos,simParam.shape,simParam.L),startArgs{:});

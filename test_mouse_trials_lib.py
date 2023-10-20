@@ -184,22 +184,22 @@ def run_tests(
                         './experiments/relative_target/mouse_12/mpos_06Sept2019_trial_7_startloc_NW_day_9.mat']
         L = 21
         tracks = io.load_trial_file(track_files)
-        N,G,_,_ = tstep.count_number_of_steps_in_lattice(tracks[0].time,tracks[0].r_nose,L)
+        N,G,_,_ = tstep.count_number_of_steps_in_lattice(tracks[0].time,tracks[0].r_nose,L,r_center=tracks[0].r_arena_center)
         ax = pltt.plot_arena_sketch(tracks[0])
         pltt.plot_arena_grid(ax,G,line_color=(0.8,0.8,0.8),show_grid_lines=True)
         pltt.plot_mouse_trajectory(ax,tracks[0],mouse_part='nose')
         
-        N,G,_,_ = tstep.count_number_of_steps_in_lattice(tracks[1].time,tracks[1].r_nose,L)
+        N,G,_,_ = tstep.count_number_of_steps_in_lattice(tracks[1].time,tracks[1].r_nose,L,r_center=tracks[1].r_arena_center)
         ax = pltt.plot_arena_sketch(tracks[1])
         pltt.plot_arena_grid(ax,G,line_color=(0.8,0.8,0.8),show_grid_lines=True)
         pltt.plot_mouse_trajectory(ax,tracks[1],mouse_part='nose')
         
-        N,G,_,_ = tstep.count_number_of_steps_in_lattice(tracks[2].time,tracks[2].r_nose,L)
+        N,G,_,_ = tstep.count_number_of_steps_in_lattice(tracks[2].time,tracks[2].r_nose,L,r_center=tracks[2].r_arena_center)
         ax = pltt.plot_arena_sketch(tracks[2])
         pltt.plot_arena_grid(ax,G,line_color=(0.8,0.8,0.8),show_grid_lines=True)
         pltt.plot_mouse_trajectory(ax,tracks[2],mouse_part='nose')
         
-        N,G,_,_ = tstep.count_number_of_steps_in_lattice(tracks[3].time,tracks[3].r_nose,L)
+        N,G,_,_ = tstep.count_number_of_steps_in_lattice(tracks[3].time,tracks[3].r_nose,L,r_center=tracks[3].r_arena_center)
         ax = pltt.plot_arena_sketch(tracks[3])
         pltt.plot_arena_grid(ax,G,line_color=(0.8,0.8,0.8),show_grid_lines=True)
         pltt.plot_mouse_trajectory(ax,tracks[3],mouse_part='nose')

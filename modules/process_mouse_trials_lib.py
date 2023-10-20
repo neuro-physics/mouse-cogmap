@@ -100,6 +100,7 @@ def is_trial_of_type(trial,trial_type):
         return trial_type == 'numeric'
     else:
         tt = trial_type + '2' + ('_2' if trial_type in ['rotation','unknown'] else '')
+        #print(tt)
         return get_named_trial_number(trial) == get_named_trial_number(tt)
 
 def get_named_trial_trialnumber(trial):
@@ -110,6 +111,7 @@ def get_named_trial_number(trial):
     if trial.isdigit():
         return int(trial)
     m = regexp.findall('\d+',trial)
+    #print(m)
     if len(m) <= 1:
         if trial.startswith('t'):
             return __TRIAL_NUM_TRAINING__
@@ -123,6 +125,8 @@ def get_named_trial_number(trial):
             return __TRIAL_NUM_FLIP__
         elif trial.startswith('re'):
             return __TRIAL_NUM_REVERSE__
+        elif trial.startswith('r'):
+            return __TRIAL_NUM_ROTATION__
         else:
             return __TRIAL_NUM_OTHER__
     else:
@@ -149,10 +153,10 @@ def trial_to_number(trial):
     try:
         return int(trial) # if trial is just a digit, this will return the trial number
     except:
-        trial = trial.strip().lower()
+        trial     = trial.strip().lower()
         get_digit = lambda mm: int(mm[0]) if len(mm) > 0 else 1 # if no digit is present, 1 is assumed
-        m = regexp.findall('\d+',trial)
-        N = get_named_trial_number(trial)
+        m         = regexp.findall('\d+',trial)
+        N         = get_named_trial_number(trial)
         return N + get_digit(m) if len(m) <= 1 else float(N) + float(m[1]) + float(m[0])/360.0
 
 
@@ -290,8 +294,8 @@ def get_track_file(file_header=None,data=None):
         data = read_trial_data()
     return misc.trackfile(**file_header,**data)
 
-def get_arena_grid_limits(r_center=None):
-    c = get_arena_center() if r_center is None else numpy.asarray(r_center)
+def get_arena_grid_limits(r_center=None,track=None):
+    c = numpy.asarray(r_center) if misc.exists(r_center) else get_arena_center(track)
     r = 2.0 + 60.0 # offset of 2cm outside of the arena
     X_grid_lim = c[0] + (-r,r) # this
     Y_grid_lim = c[1] + (r,-r) # the y coords have to be inverted because I want the index to grow from top to bottom (i.e. positive correspond to 0)
@@ -704,7 +708,7 @@ def read_trial_header(fname='',file_trial_idx=None,arena_pic_dir='',nrows_header
         r.Set(**get_arena_picture_bounds(r))
         return r
     print('     ... reading header')
-    nrows_header = get_n_header_rows(fname)-1 if nrows_header is None else nrows_header
+    nrows_header = nrows_header if misc.exists(nrows_header) else get_n_header_rows(fname)-1
     h = pandas.read_excel(fname,nrows=nrows_header,names=['name','value'],header=None,usecols='A,B')
                         #, #arena_picture_dtype='', arena_picture_shape=(0,0,0), arena_picture_decompress_str='',
                         #**get_arena_picture_bounds())
@@ -796,6 +800,22 @@ def get_compressed_arena_pic(start_location,arena_pic_dir):
         get_pic = lambda im: None # save memory
     return (get_pic(img),str(img.dtype),img.shape)
 
+
+"""
+################################################
+################################################
+################################################
+################################################
+################################################
+################################################ The functions below need to be updated when adding new experiments to process
+################################################
+################################################
+################################################
+################################################
+################################################
+################################################
+"""
+
 def get_arena_all_picture_filename(file_header=None):
     fname = 'BKGDimage-pilot.png'
     if (type(file_header) is type(None)) or (file_header.exper_date == '06Sept2019') or (file_header.exper_date == '07Oct2019') or (file_header.exper_date == '08Jul2019') or (file_header.exper_date == '23May2019'):
@@ -829,13 +849,23 @@ def get_arena_all_picture_filename(file_header=None):
         fname = '2022/BKGDimage-220812_cropped.png'
     if (file_header.exper_date == '11Oct2022'):
         fname = '2022/BKGDimage-20221011_cropped.png'
+    if (file_header.exper_date == '20Sept2022'):
+        if _is_probe2_trial(file_header.trial):
+            fname = '2022/BKGDimage-20220920-probe2_cropped.png'
+        else:
+            fname = '2022/BKGDimage-20220920_cropped.png'
+    if (file_header.exper_date == '04Nov2022'):
+        fname = '2022/BKGDimage-20221104_cropped.png'
     return dict(SW=fname,SE=fname,NE=fname,NW=fname)
+
+def _is_probe2_trial(trial_str):
+    return is_trial_of_type(trial_str, 'probe') and ('2' in trial_str)
 
 def is_reverse_condition(track):
     is_reverse = False
     if track.trial.startswith(u'R') or track.trial.startswith(u'Flip') or track.trial.startswith(u'Revers'):
         is_reverse = True
-    if (track.exper_date == '22Jun2021') or (track.exper_date == '19Nov2021') or (track.exper_date == '12Aug2022') or (track.exper_date == '11Oct2022'):
+    if (track.exper_date == '22Jun2021') or (track.exper_date == '19Nov2021') or (track.exper_date == '12Aug2022') or (track.exper_date == '11Oct2022') or (track.exper_date == '20Sept2022'):
         if track.trial.startswith(u'Probe'):
             d = regexp.findall('\d+',track.trial) # check if it is ProbeX, where X is a number
             if (len(d) > 0): # if this is ProbeX
@@ -894,6 +924,13 @@ def get_arena_picture_bounds(file_header=None,as_list=False):
         img_extent = [-102.8197797797798, 91.28792792792794, -70.57941071428571, 75.46916071428572] # '2022/BKGDimage-220812_cropped.png'
     if (file_header.exper_date == '11Oct2022'):
         img_extent = [-105.07659645232815, 89.01652993348114, -69.17229249011861, 76.89569169960474] # '2022/BKGDimage-20221011_cropped.png'
+    if (file_header.exper_date == '20Sept2022'):
+        if _is_probe2_trial(file_header.trial):
+            img_extent = [-102.67863496932516, 91.569217791411, -70.96838709677417, 75.12193548387097] # '2022/BKGDimage-20220920-probe2_cropped.png'
+        else:
+            img_extent = [-107.53483128834355, 86.71302147239263, -70.96838709677417, 75.12193548387097] # '2022/BKGDimage-20220920_cropped.png'
+    if (file_header.exper_date == '04Nov2022'):
+        img_extent = [-105.53609805924413, 92.53703779366703, -72.46542805100178, 76.50943533697632] # '2022/BKGDimage-20221104_cropped.png'
     if as_list:
         return img_extent
     else:
@@ -946,9 +983,16 @@ def get_arena_center(file_header=None):
         else:                      # 'jun-jul-aug-nov-2021/BKGDimage_3LocalCues_cropped.png'
             c0 = [-1.07024096385544, 1.2287096774193458]
     if (file_header.exper_date == '12Aug2022'):
-        img_extent = [1.5131131131131212, 0.6192678571428729] # '2022/BKGDimage-220812_cropped.png'
+        c0 = [1.5131131131131212, 0.6192678571428729] # '2022/BKGDimage-220812_cropped.png'
     if (file_header.exper_date == '11Oct2022'):
-        img_extent = [-0.8283111111111339, 2.3434523809523853] # '2022/BKGDimage-20221011_cropped.png'
+        c0 = [-0.8283111111111339, 2.3434523809523853] # '2022/BKGDimage-20221011_cropped.png'
+    if (file_header.exper_date == '20Sept2022'):
+        if _is_probe2_trial(file_header.trial):
+            c0 = [1.7295858895705294, 0.250645161290322] # '2022/BKGDimage-20220920-probe2_cropped.png'
+        else:
+            c0 = [-3.126610429447865, 0.250645161290322] # '2022/BKGDimage-20220920_cropped.png'
+    if (file_header.exper_date == '04Nov2022'):
+        c0 = [0.9282124616956082, 0.1598178506375234] # '2022/BKGDimage-20221104_cropped.png'
     #return get_arena_to_arena_translate(file_header)(numpy.array(c0)) # this should be (almost) equivalent to the positions above, measured by the crop_arena_pictures script
     return numpy.array(c0)
 
@@ -1055,6 +1099,22 @@ def get_arena_entrance_coord(file_header=None):
                      NE=numpy.array((-38.99694779,-42.93392473)),
                      SW=numpy.array((37.76670683,45.08677419)),
                      NW=numpy.array((42.01449799,-37.75623656)))
+    if (file_header.exper_date == '20Sept2022'):
+        if _is_probe2_trial(file_header.trial): # '2022/BKGDimage-20220920-probe2_cropped.png'
+            d = dict(SE=numpy.array((-42.27969325,-41.44596774)), # entrance labels are rotated in raw xlsx files
+                     NE=numpy.array((43.00725460,-43.88080645)),
+                     SW=numpy.array((-41.67266871,42.25161290)),
+                     NW=numpy.array((43.61427914,44.07774194)))
+        else: #                                         '2022/BKGDimage-20220920_cropped.png'
+            d = dict(SE=numpy.array((-47.74291411,-41.44596774)),
+                     NE=numpy.array((37.54403374,-43.88080645)),
+                     SW=numpy.array((-46.83237730,42.25161290)),
+                     NW=numpy.array((38.15105828,44.07774194)))
+    if (file_header.exper_date == '04Nov2022'): #       '2022/BKGDimage-20221104_cropped.png'
+        d = dict(SE=numpy.array((-42.40028601,-42.36009107)),
+                 NE=numpy.array((42.70926456,-44.22227687)),
+                 SW=numpy.array((-42.40028601,42.36936248)),
+                 NW=numpy.array((43.32824311,43.92118397)))
     return d #match_entrance_labels_quadrant(d,d_ref)
 
 def get_mean_min_hole_dist(file_header=None):
@@ -1356,6 +1416,76 @@ def get_arena_hole_coord(file_header=None):
                             [1.67462306,-39.35007905],[30.78859202,-39.35007905],[20.47739468,-41.78454545],[-16.82487805,-43.30608696],
                             [-34.41456763,-44.82762846],[-5.60386918,-44.82762846],[29.27223947,-46.04486166],[8.95311530,-47.26209486],
                             [-25.92299335,-49.08794466],[18.05123060,-50.30517787],[-8.03003326,-53.95687747],[4.10078714,-54.56549407] ])
+    if (file_header.exper_date == '20Sept2022'):
+        if _is_probe2_trial(file_header.trial): # fname = '2022/BKGDimage-20220920-probe2_cropped.png'
+            r = numpy.array([[-3.12661043,55.94758065],[9.01388037,55.33887097],[-17.39168712,51.68661290],[26.92110429,50.16483871],
+                            [-8.28631902,48.64306452],[-28.62164110,47.42564516],[5.97875767,45.90387097],[35.72296012,45.90387097],
+                            [17.51222393,44.38209677],[-19.81978528,42.86032258],[-30.44271472,40.42548387],[-1.30553681,40.42548387],
+                            [-11.62495399,38.59935484],[32.08081288,36.77322581],[19.02978528,35.86016129],[-44.10076687,34.64274194],
+                            [5.67524540,34.64274194],[-24.37246933,34.64274194],[41.48969325,31.90354839],[-35.60242331,31.29483871],
+                            [-13.44602761,30.38177419],[48.77398773,30.07741935],[-3.12661043,28.86000000],[-48.65345092,26.12080645],
+                            [34.81242331,25.51209677],[19.63680982,23.38161290],[-17.69519939,23.07725806],[9.31739264,22.46854839],
+                            [43.91779141,20.94677419],[-22.85490798,19.72935484],[-34.69188650,18.81629032],[23.27895706,18.51193548],
+                            [53.02315951,18.51193548],[-43.19023006,17.29451613],[2.33661043,17.29451613],[-7.07226994,16.68580645],
+                            [30.56325153,13.94661290],[39.36510736,12.42483871],[-21.64085890,9.38129032],[49.38101227,9.07693548],
+                            [-53.81315951,8.77258065],[0.21202454,7.85951613],[16.29817485,7.55516129],[-44.70779141,5.72903226],
+                            [-33.78134969,5.72903226],[57.27233129,3.90290323],[29.04569018,3.59854839],[-16.78466258,2.68548387],
+                            [40.57915644,2.07677419],[-7.37578221,0.25064516],[7.49631902,0.25064516],[-39.24457055,-1.27112903],
+                            [16.90519939,-2.18419355],[-28.31812883,-2.79290323],[-54.42018405,-3.09725806],[34.81242331,-5.22774194],
+                            [46.34588957,-5.53209677],[-16.17763804,-6.74951613],[-0.09148773,-7.05387097],[-47.43940184,-8.27129032],
+                            [56.36179448,-8.27129032],[22.06490798,-8.88000000],[-38.03052147,-11.31483871],[-29.83569018,-13.14096774],
+                            [7.19280675,-15.88016129],[-2.51958589,-16.48887097],[44.82832822,-17.09758065],[-50.47452454,-17.40193548],
+                            [-22.55139571,-17.40193548],[36.02647239,-18.61935484],[23.27895706,-19.22806452],[-41.97618098,-19.83677419],
+                            [-9.19685583,-21.35854839],[-19.21276074,-22.88032258],[18.11924847,-22.88032258],[-33.78134969,-24.40209677],
+                            [50.89857362,-26.53258065],[3.55065951,-28.35870968],[-46.52886503,-28.96741935],[13.56656442,-29.88048387],
+                            [-39.85159509,-30.48919355],[36.93700920,-31.40225806],[-5.55470859,-33.83709677],[25.40354294,-34.44580645],
+                            [-18.30222393,-34.75016129],[46.34588957,-35.05451613],[-30.74622699,-35.66322581],[12.04900307,-38.40241935],
+                            [1.72958589,-39.61983871],[31.77730061,-40.53290323],[20.85085890,-42.66338710],[-16.78466258,-43.27209677],
+                            [-34.08486196,-44.48951613],[-5.55470859,-45.09822581],[29.95622699,-47.83741935],[9.01388037,-48.14177419],
+                            [-25.58651840,-49.05483871],[18.42276074,-51.48967742],[-8.28631902,-54.53322581],[4.15768405,-55.44629032]])
+        else:                                   # fname = '2022/BKGDimage-20220920_cropped.png'
+            r = numpy.array([[-8.58983129,55.94758065],[3.85417178,55.33887097],[-22.85490798,51.68661290],[21.76139571,50.16483871],
+                         [-13.74953988,48.33870968],[-34.08486196,47.42564516],[30.25973926,45.90387097],[0.51553681,45.90387097],[12.35251534,44.38209677],
+                         [-25.28300613,42.86032258],[-35.90593558,40.42548387],[-6.76875767,40.42548387],[-17.08817485,38.90370968],[26.61759202,37.07758065],
+                         [13.56656442,35.86016129],[-49.56398773,34.64274194],[0.51553681,34.64274194],[-29.83569018,34.33838710],[36.32998466,31.90354839],
+                         [-41.06564417,31.29483871],[-18.60573620,30.38177419],[43.31076687,30.07741935],[-8.58983129,28.86000000],[-53.81315951,26.42516129],
+                         [29.65271472,25.51209677],[14.17358896,23.68596774],[-23.15842025,23.07725806],[3.85417178,22.16419355],[38.45457055,20.94677419],
+                         [-28.01461656,19.72935484],[-40.15510736,18.51193548],[17.81573620,18.51193548],[47.86345092,18.51193548],[-48.65345092,17.29451613],
+                         [-2.82309816,17.29451613],[-12.53549080,16.68580645],[25.10003067,13.94661290],[33.90188650,12.42483871],[-27.10407975,9.38129032],
+                         [44.22130368,9.07693548],[-58.97286810,8.77258065],[-5.25119632,7.55516129],[11.13846626,7.55516129],[-49.86750000,6.03338710],
+                         [-38.94105828,6.03338710],[51.80911043,3.90290323],[23.58246933,3.59854839],[-21.94437117,2.68548387],[35.41944785,2.07677419],
+                         [-12.83900307,0.25064516],[2.03309816,0.25064516],[-44.70779141,-1.27112903],[11.74549080,-2.18419355],[-33.47783742,-2.79290323],
+                         [-59.88340491,-3.09725806],[29.34920245,-5.22774194],[40.88266871,-5.53209677],[-21.64085890,-6.74951613],[-5.55470859,-7.05387097],
+                         [-52.90262270,-8.27129032],[50.89857362,-8.27129032],[16.90519939,-8.88000000],[-43.19023006,-11.31483871],[-35.29891104,-12.83661290],
+                         [1.72958589,-15.88016129],[-7.67929448,-16.48887097],[39.36510736,-17.09758065],[-55.93774540,-17.40193548],[-28.01461656,-17.40193548],
+                         [30.56325153,-18.61935484],[18.11924847,-18.92370968],[-47.43940184,-19.83677419],[-14.35656442,-21.66290323],[-24.37246933,-22.57596774],
+                         [12.95953988,-22.57596774],[-39.24457055,-24.40209677],[45.43535276,-26.53258065],[-1.91256135,-28.35870968],[-51.68857362,-28.66306452],
+                         [8.40685583,-29.88048387],[-45.31481595,-30.48919355],[31.77730061,-31.40225806],[-10.71441718,-33.83709677],[19.94032209,-34.44580645],
+                         [-23.76544479,-34.75016129],[40.88266871,-35.05451613],[-36.51296012,-35.96758065],[6.58578221,-38.40241935],[-3.43012270,-39.61983871],
+                         [26.31407975,-40.53290323],[15.38763804,-42.96774194],[-22.24788344,-43.27209677],[-39.54808282,-44.48951613],[-10.71441718,-44.79387097],
+                         [24.79651840,-47.53306452],[3.55065951,-48.14177419],[-31.04973926,-49.05483871],[12.95953988,-51.48967742],[-13.44602761,-54.22887097],
+                         [-1.30553681,-55.44629032]])
+    if (file_header.exper_date == '04Nov2022'): # fname = '2022/BKGDimage-20221104_cropped.png'
+        r = numpy.array([[-3.40463739,56.02539162],[8.66544433,55.40466302],[-17.64114402,51.68029144],[26.61582227,50.43883424],[-8.97544433,48.57664845],
+                         [-28.78275792,47.33519126],[5.57055158,46.09373406],[35.28152196,46.09373406],[17.33114402,44.54191257],[-20.11705822,42.99009107],
+                         [-30.94918284,40.50717668],[-1.85719101,40.50717668],[-11.76084780,38.95535519],[31.87713994,37.09316940],[18.56910112,35.85171220],
+                         [5.26106231,34.61025501],[-44.56671093,34.61025501],[-24.75939734,34.29989071],[41.16181818,31.81697632],[-35.90101124,31.50661202],
+                         [-13.61778345,30.26515483],[48.28007150,29.95479053],[-3.40463739,29.02369763],[-48.89956078,26.23041894],[34.66254341,25.60969035],
+                         [19.18807967,23.74750455],[-17.95063330,23.12677596],[8.97493361,22.50604736],[43.32824311,20.95422587],[-23.21195097,19.40240437],
+                         [-34.97254341,18.78167577],[22.90195097,18.47131148],[52.61292135,18.47131148],[2.16616956,17.22985428],[-43.32875383,17.22985428],
+                         [-7.42799796,16.60912568],[30.32969356,14.12621129],[38.99539326,12.26402550],[-21.97399387,9.47074681],[49.20853933,9.16038251],
+                         [-54.16087845,8.53965392],[-0.00025536,7.91892532],[16.09318693,7.60856102],[-44.87620020,5.74637523],[-34.04407559,5.74637523],
+                         [28.78224719,3.57382514],[56.94577120,3.88418944],[-17.02216547,2.64273224],[40.54283963,2.02200364],[-7.42799796,0.47018215],
+                         [7.11799796,0.15981785],[-39.61488253,-1.39200364],[16.71216547,-2.32309654],[-28.47326864,-2.94382514],[-54.77985700,-3.56455373],
+                         [34.35305414,-5.42673953],[46.11364658,-5.42673953],[-16.40318693,-6.66819672],[-0.30974464,-6.97856102],[-47.66160368,-8.53038251],
+                         [56.01730337,-8.53038251],[21.97348315,-8.84074681],[-38.37692543,-11.63402550],[-30.02071502,-13.18584699],[6.80850868,-15.97912568],
+                         [-2.78565884,-16.59985428],[44.25671093,-17.22058288],[-50.75649642,-17.53094718],[-22.90246170,-17.84131148],[35.59101124,-18.46204007],
+                         [23.21144025,-19.08276867],[-42.40028601,-20.01386157],[-9.28493361,-21.56568306],[-19.18859040,-22.80714026],[17.95012257,-22.80714026],
+                         [-34.04407559,-24.35896175],[50.44649642,-26.53151184],[3.09463739,-28.39369763],[-46.73313585,-29.01442623],[13.30778345,-30.25588342],
+                         [-40.23386108,-30.87661202],[36.82896834,-31.49734062],[-5.57106231,-33.98025501],[25.06837589,-34.60098361],[-18.56961185,-35.22171220],
+                         [46.11364658,-35.22171220],[-31.25867211,-36.15280510],[11.76033708,-38.63571949],[1.54719101,-39.87717668],[31.56765066,-40.80826958],
+                         [20.42603677,-42.98081967],[-17.02216547,-43.29118397],[-34.35356486,-44.84300546],[-5.57106231,-45.15336976],[29.40122574,-47.94664845],
+                         [8.97493361,-48.25701275],[-25.99735444,-49.18810565],[18.25961185,-51.98138434],[-8.35646578,-54.77466302],[3.71361593,-55.70575592]])
     return r
 
 def get_2target_target_index(trial,flip_targets=False,experiment_date=None):
@@ -1375,7 +1505,7 @@ def get_2target_target_index(trial,flip_targets=False,experiment_date=None):
     #print('*****************************            target index == %d'%target_index)
     return target_index
 
-def get_2target_experiment_target(entrance_label,experiment_date,target_index):
+def get_2target_experiment_target(entrance_label,experiment_date,target_index,is_probe2=False):
     assert target_index in [1,2,'A','B'],"'target' must be either 1 or A, or 2 or B"
     if target_index == 'A':
         target_index = 1
@@ -1448,33 +1578,77 @@ def get_2target_experiment_target(entrance_label,experiment_date,target_index):
                 target_coords = (-23.49682927,-18.04849802)
             if entrance_label == u'NW':
                 target_coords = (17.74796009,-22.30881423)
+    if (experiment_date == '20Sept2022'):
+        if is_probe2:
+            if target_index == 1: #target A
+                if entrance_label == u'SW':
+                    target_coords = (39.06159509,12.12048387)
+                if entrance_label == u'SE':
+                    target_coords = (-11.62495399,38.59935484)
+                if entrance_label == u'NE':
+                    target_coords = (-38.33403374,-11.31483871)
+                if entrance_label == u'NW':
+                    target_coords = (11.74549080,-38.40241935)
+            else: #target B
+                if entrance_label == u'SW':
+                    target_coords = (-22.85490798,-17.70629032)
+                if entrance_label == u'SE':
+                    target_coords = (18.42276074,-22.88032258)
+                if entrance_label == u'NE':
+                    target_coords = (23.27895706,18.20758065)
+                if entrance_label == u'NW':
+                    target_coords = (-17.69519939,22.77290323)
+                
+        else:
+            if target_index == 1: #target A
+                if entrance_label == u'SW':
+                    target_coords = (33.90188650,12.12048387)
+                if entrance_label == u'SE':
+                    target_coords = (-16.78466258,38.59935484)
+                if entrance_label == u'NE':
+                    target_coords = (-43.79725460,-11.31483871)
+                if entrance_label == u'NW':
+                    target_coords = (6.58578221,-38.40241935)
+            else: #target B
+                if entrance_label == u'SW':
+                    target_coords = (-28.31812883,-17.70629032)
+                if entrance_label == u'SE':
+                    target_coords = (12.95953988,-22.57596774)
+                if entrance_label == u'NE':
+                    target_coords = (17.81573620,18.20758065)
+                if entrance_label == u'NW':
+                    target_coords = (-23.15842025,22.77290323)
     return numpy.array(target_coords)
 
 def get_arena_alt_target(file_header):
     entrance        = file_header.start_location
     trial_condition = file_header.trial
     experiment      = file_header.exper_date
+    is_probe2       = _is_probe2_trial(trial_condition) # used only for experiment == '20Sept2022'
     target_coords   = (numpy.nan,numpy.nan)
-    if (experiment == '22Jun2021') or (experiment == '19Nov2021') or (experiment == '12Aug2022') or (experiment == '11Oct2022'):
-        target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=True)))
+    if (experiment == '22Jun2021') or (experiment == '19Nov2021') or (experiment == '12Aug2022') or (experiment == '11Oct2022') or (experiment == '20Sept2022'):
+        target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=True),is_probe2=is_probe2))
     if ('probe' in trial_condition.lower()) and (get_named_trial_trialnumber(trial_condition) >= 2): # Probe2
-        if (experiment == '12Aug2022') or (experiment == '11Oct2022'):
+        if (experiment == '12Aug2022') or (experiment == '11Oct2022') or (experiment == '20Sept2022'):
             # probe2 of these experiments is 180 degrees rotated; so we rotate 180 deg here to undo the experiment rotation and get the correct result
-            target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=True)))
+            # however, the entrance labels are already rotated in xlsx raw experimental files, so we actually do not rotate labels
+            #target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=True),is_probe2=is_probe2))
+            target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=True),is_probe2=is_probe2))
     return numpy.array(target_coords)
 
 def get_arena_alt_reverse_target(file_header):
     entrance        = file_header.start_location
     trial_condition = file_header.trial
     experiment      = file_header.exper_date
+    is_probe2       = _is_probe2_trial(trial_condition) # used only for experiment == '20Sept2022'
     target_coords   = (numpy.nan,numpy.nan)
-    if (experiment == '22Jun2021') or (experiment == '19Nov2021') or (experiment == '12Aug2022') or (experiment == '11Oct2022'):
+    if (experiment == '22Jun2021') or (experiment == '19Nov2021') or (experiment == '12Aug2022') or (experiment == '11Oct2022') or (experiment == '20Sept2022'):
         # the alt reverse is the 180 deg rotation of the alternative target (alt == 2 if tgt == 1; or alt == 1 if tgt == 2)
-        target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=True)))
+        target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=True),is_probe2=is_probe2))
     if ('probe' in trial_condition.lower()) and (get_named_trial_trialnumber(trial_condition) >= 2): # Probe2
-        if (experiment == '12Aug2022') or (experiment == '11Oct2022'):
+        if (experiment == '12Aug2022') or (experiment == '11Oct2022') or (experiment == '20Sept2022'):
             # probe2 of these experiments is 180 degrees rotated; so we rotate 180 deg here to undo the experiment rotation and get the correct result
-            target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=True)))
+            target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=True),is_probe2=is_probe2))
     return numpy.array(target_coords)
 
 def _get_main_target_set_for_rotating_probes(entrance):
@@ -1488,25 +1662,34 @@ def _get_main_target_set_for_rotating_probes(entrance):
         target_coords = -21.68, -5.61     
     return target_coords
 
+def _get_closest_arena_hole_coord(file_header,r0):
+    if not(type(r0) is numpy.ndarray):
+        r0 = numpy.asarray(r0)
+    r = get_arena_hole_coord(file_header)
+    return r[numpy.argmin(numpy.linalg.norm(r - r0,axis=1))]
+
 #manually sets food target coordinates based on experiment
 def get_arena_target(file_header):
-    entrance = file_header.start_location
+    entrance        = file_header.start_location
     trial_condition = file_header.trial
-    experiment = file_header.exper_date
-
-    target_coords = (numpy.nan,numpy.nan)
+    experiment      = file_header.exper_date
+    target_coords   = (numpy.nan,numpy.nan)
     
-    if ('23May2019' == experiment) or ('Pilot' in experiment):
+    if ('Pilot' in experiment):
+        target_coords = 20.47, -39.91 #default coordinates
+    elif ('23May2019' == experiment):
         target_coords = 20.47, -39.91 #default coordinates
     elif ('06Sept2019' == experiment) or ('07Oct2019' == experiment) or ('08Jul2019' == experiment) or ('18Jun2019' == experiment):
         #if trial_condition.isdigit() or ('probe' in trial_condition.lower()):
-        target_coords = _get_main_target_set_for_rotating_probes(entrance)
+        target_coords  = _get_main_target_set_for_rotating_probes(entrance)
+        rotation_angle = 0.0
         if trial_condition.startswith('R90'):
-            target_coords = _get_main_target_set_for_rotating_probes(_rotate_compass_label_default(entrance,-numpy.pi/2.0))
+            rotation_angle = -numpy.pi/2.0
         if trial_condition.startswith('R180'):
-            target_coords = _get_main_target_set_for_rotating_probes(_rotate_compass_label_default(entrance,-numpy.pi    ))
+            rotation_angle = -numpy.pi
         if trial_condition.startswith('R270'):
-            target_coords = _get_main_target_set_for_rotating_probes(_rotate_compass_label_default(entrance, numpy.pi/2.0))
+            rotation_angle = numpy.pi/2.0
+        target_coords = _get_main_target_set_for_rotating_probes(_rotate_compass_label_default(entrance,rotation_angle))
     elif experiment == '11Dec2019': # 'dec-2019/BKGDimage-localCues_cropped.png'
         target_coords = 2.88, 27.45
     elif (experiment == '08Mar2021') or (experiment == '06May2021') or (experiment == '26May2021'):
@@ -1520,19 +1703,35 @@ def get_arena_target(file_header):
     elif (experiment == '12Aug2022'):
         target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=False)))
         if ('probe' in trial_condition.lower()) and (get_named_trial_trialnumber(trial_condition) >= 2): # Probe2
-            target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=False)))
+            target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=False)))
     elif (experiment == '11Oct2022'):
         target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=False)))
         if ('probe' in trial_condition.lower()) and (get_named_trial_trialnumber(trial_condition) >= 2): # Probe2
-            target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=False)))
+            target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=False)))
     elif experiment == '30Jul2021':
         target_coords = -2.2, 30.63
     elif experiment == '11Aug2021':
         target_coords = 28.12, 4.71
+    elif (experiment == '20Sept2022'):
+        target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=False),is_probe2=False))
+        if ('probe' in trial_condition.lower()) and (get_named_trial_trialnumber(trial_condition) >= 2): # Probe2
+            target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=False),is_probe2=True))
+            # I don't rotate the probe 2 in this case because the probe2 is treated differently in this experiment set compared to others
+            #target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=False)))
+    elif (experiment == '04Nov2022'):
+        if entrance == u'SW':
+            target_coords = (38.68590398,12.26402550)
+        if entrance == u'SE':
+            target_coords = (-12.07033708,38.64499089)
+        if entrance == u'NE':
+            target_coords = (-38.68641471,-11.94438980)
+        if entrance == u'NW':
+            target_coords = (11.76033708,-38.94608379)
     else:
         raise ValueError('Unknown experiment date for file %s' % file_header.file_name)
     #return get_arena_to_arena_translate(file_header)(numpy.array(target_coords))
-    return get_arena_hole_coord(file_header)[numpy.argmin(numpy.linalg.norm(get_arena_hole_coord(file_header) - numpy.array(target_coords),axis=1))]
+    # we return the arena hole that is closest to the target coordinates dictated above to avoid misplaced targets
+    return _get_closest_arena_hole_coord(file_header,numpy.array(target_coords))
 
 def get_arena_reverse_target(file_header):
     entrance = file_header.start_location
@@ -1542,12 +1741,31 @@ def get_arena_reverse_target(file_header):
     reverse_target_coords = (numpy.nan,numpy.nan)
     
     if ('23May2019' == experiment):
-        reverse_target_coords = -6.32, 36.62 #default coordinates
+        #reverse_target_coords = -6.32, 36.62 #180deg rotated target coords
+        reverse_target_coords = 20.47, -39.91 #actual target coordinates
+        rotation_angle        = 0.0
+        if trial_condition.startswith('R90'):
+            rotation_angle = -numpy.pi/2.0
+        elif trial_condition.startswith('R270'):
+            rotation_angle = numpy.pi/2.0
+        elif is_trial_of_type(trial_condition,'flip') or trial_condition.startswith('R180'):
+            rotation_angle = numpy.pi
+        reverse_target_coords = tuple(_get_closest_arena_hole_coord(file_header,misc.RotateTransf( None, None, get_arena_center(file_header), rotation_angle )(numpy.array(reverse_target_coords))))
     elif ('06Sept2019' == experiment) or ('07Oct2019' == experiment) or ('08Jul2019' == experiment):
         #if trial_condition.isdigit() or ('probe' in trial_condition.lower()):
-        reverse_target_coords = _get_main_target_set_for_rotating_probes(entrance)
-        if trial_condition.startswith('R90'):
-            reverse_target_coords = _get_main_target_set_for_rotating_probes(_rotate_compass_label_default(entrance, numpy.pi/2.0))
+        reverse_target_coords = _get_main_target_set_for_rotating_probes(entrance) # entrance label is already of the entrance that's rotated relative to main training trials
+        # kelly original
+        #if trial_condition.startswith('R90'):
+        #    reverse_target_coords = _get_main_target_set_for_rotating_probes(_rotate_compass_label_default(entrance, numpy.pi/2.0))
+        #rotation_angle = 0.0
+        #if trial_condition.startswith('R90'):
+        #    rotation_angle = -numpy.pi/2.0
+        #if trial_condition.startswith('R180'):
+        #    rotation_angle = -numpy.pi
+        #if trial_condition.startswith('R270'):
+        #    rotation_angle = numpy.pi/2.0
+        #reverse_target_coords = _get_main_target_set_for_rotating_probes(_rotate_compass_label_default(entrance,rotation_angle))
+
     elif experiment == '11Dec2019': # 'dec-2019/BKGDimage-localCues_cropped.png'
         reverse_target_coords = 11.07, -30.48
     elif (experiment == '08Mar2021') or (experiment == '06May2021') or (experiment == '26May2021'):
@@ -1562,21 +1780,40 @@ def get_arena_reverse_target(file_header):
         # the reverse target is where the main target is supposed to be if the mouse had entered from a 180 rotation
         reverse_target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=False)))
         if ('probe' in trial_condition.lower()) and (get_named_trial_trialnumber(trial_condition) >= 2): # Probe2
-            reverse_target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=False)))
+            reverse_target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=False)))
     elif (experiment == '11Oct2022'): #normal target A
         # the reverse target is where the main target is supposed to be if the mouse had entered from a 180 rotation
         reverse_target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=False)))
         if ('probe' in trial_condition.lower()) and (get_named_trial_trialnumber(trial_condition) >= 2): # Probe2
-            reverse_target_coords = tuple(get_2target_experiment_target(entrance,experiment,get_2target_target_index(trial_condition,flip_targets=False)))
+            reverse_target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=False)))
     elif experiment == '30Jul2021':
         reverse_target_coords = 6.75, -26.23
     elif experiment == '11Aug2021':
         reverse_target_coords = -29.21, -3.77
+    elif (experiment == '20Sept2022'):
+        reverse_target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=False),is_probe2=False))
+        if ('probe' in trial_condition.lower()) and (get_named_trial_trialnumber(trial_condition) >= 2): # Probe2
+            reverse_target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=False),is_probe2=True))
+            # I don't rotate the probe 2 in this case because the probe2 is treated differently in this experiment set compared to others
+            #target_coords = tuple(get_2target_experiment_target(_rotate_compass_label_default(entrance, numpy.pi),experiment,get_2target_target_index(trial_condition,flip_targets=False)))
+    elif (experiment == '04Nov2022'):
+        # I do not need to rotate the entrance label because
+        # the entrance label is already "rotated" in the raw experimental files (i.e., the SE R90 is already SW)
+        #########if is_trial_of_type(trial_condition,'rotation'):
+        #########    entrance = _rotate_compass_label_default(entrance, numpy.pi)
+        if entrance == u'SW':
+            reverse_target_coords = (11.76033708,-38.94608379)
+        if entrance == u'SE':
+            reverse_target_coords = (38.68590398,12.26402550)
+        if entrance == u'NE':
+            reverse_target_coords = (-12.07033708,38.64499089)
+        if entrance == u'NW':
+            reverse_target_coords = (-38.68641471,-11.94438980)
     else:
         if not ('Pilot' in experiment):
             raise ValueError('Unknown experiment date for file %s' % file_header.file_name)
     #return get_arena_to_arena_translate(file_header)(numpy.array(reverse_target_coords))
-    return get_arena_hole_coord(file_header)[numpy.argmin(numpy.linalg.norm(get_arena_hole_coord(file_header) - numpy.array(reverse_target_coords),axis=1))]
+    return _get_closest_arena_hole_coord(file_header,numpy.array(reverse_target_coords)) #get_arena_hole_coord(file_header)[numpy.argmin(numpy.linalg.norm(get_arena_hole_coord(file_header) - numpy.array(reverse_target_coords),axis=1))]
 
 
 def get_intertarget_distance_static_entrance():
