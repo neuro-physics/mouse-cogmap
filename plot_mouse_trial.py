@@ -85,6 +85,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='Plots 1 up to 10 mouse tracks... If more than 1 entrance is present, only the first arena will be plotted.')
     parser.add_argument('track'            , nargs='*', metavar='TRACK_MAT_FILE', type=str, default=[''] , help='1 up to 10 track files to be plotted')
+    parser.add_argument('-save'            , required=False, action='store_true', default=False, help='if set, saves figure in current directory')
     parser.add_argument('-stopfood'        , required=False, action='store_true', default=False, help='if set, stops trajectories at food site')
     parser.add_argument('-stoprel'         , required=False, action='store_true', default=False, help='if set, stops trajectories at the reverse target (REL -- rotationally equivalent location)')
     parser.add_argument('-showpic'         , required=False, action='store_true', default=False, help='if set, shows the picture of the real arena in the background')
@@ -227,6 +228,10 @@ def main():
                 ax[0].scatter(tr.time[ind],tr.velocity[ind],s=1e2*t_seq,marker='o',c=checks_color,zorder=10000+k,alpha=0.8)
                 ax[1].scatter(tr.time[ind],a[ind]          ,s=1e2*t_seq,marker='o',c=checks_color,zorder=10000+k,alpha=0.8)
 
+    if args.save:
+        fileName = io.get_track_output_filename('.',tracks[0],ext='.png',join_with_output_dir=False)
+        print(' *** saving ... ', fileName)
+        plt.savefig(fileName, format='png', dpi=300, facecolor=(1,1,1,1), bbox_inches='tight')
     plt.show()
 
 if __name__ == '__main__':

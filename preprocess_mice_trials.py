@@ -61,6 +61,7 @@ def main():
     # 2022-11-04
     """
 
+    preprocess_experiment('pilot'                          , clear_output_directory, ntrials_to_process)
     preprocess_experiment('relative_target'                , clear_output_directory, ntrials_to_process)
     preprocess_experiment('fixed_target'                   , clear_output_directory, ntrials_to_process)
     preprocess_experiment('two_targets'                    , clear_output_directory, ntrials_to_process)
@@ -73,7 +74,7 @@ def main():
 
 def preprocess_experiment(experiment,clear_output_directory,ntrials_to_process):
     experiment = experiment.lower()
-    valid_experiments = ['relative_target','fixed_target','two_targets','preliminary','two_targets_rot','two_targets_rot_mixsex','two_targets_rot_fem','relative_target_90deg']
+    valid_experiments = ['relative_target','fixed_target','two_targets','preliminary','two_targets_rot','two_targets_rot_mixsex','two_targets_rot_fem','relative_target_90deg', 'pilot']
     assert experiment in valid_experiments, "experiment must one of %s"%(  str(valid_experiments)[1:-1].replace("'",'')  )
 
     this_directory = sys.path[0]
@@ -193,6 +194,17 @@ def preprocess_experiment(experiment,clear_output_directory,ntrials_to_process):
         # another set (not sure if this belongs here... waiting Kelly's answer)
             dict( trial_dir              = os.path.join(this_directory,'../EthovisionPathAnalysis/Raw Trial Data/2022-11-04_Raw Trial Data'),
                   out_dir                = os.path.join(this_directory,'experiments/relative_target_90deg'),
+                  trials_to_process      = 'all', # trials to process; available values in plib.ethovision_to_track_matfile
+                  replacement_dict       = {}, # no trial label replacements
+                  correct_distortion     = False,
+                  mouse_gender           = {} ,
+                  correct_arena_center   = False)
+        ]
+    elif experiment == 'pilot':
+        clear_output_directory = [clear_output_directory]
+        process_param = [
+            dict( trial_dir              = os.path.join(this_directory,'../EthovisionPathAnalysis/Raw Trial Data/pilot_Raw Trial Data'),
+                  out_dir                = os.path.join(this_directory,'experiments/pilot'),
                   trials_to_process      = 'all', # trials to process; available values in plib.ethovision_to_track_matfile
                   replacement_dict       = {}, # no trial label replacements
                   correct_distortion     = False,

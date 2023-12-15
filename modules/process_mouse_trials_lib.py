@@ -818,7 +818,12 @@ def get_compressed_arena_pic(start_location,arena_pic_dir):
 
 def get_arena_all_picture_filename(file_header=None):
     fname = 'BKGDimage-pilot.png'
-    if (type(file_header) is type(None)) or (file_header.exper_date == '06Sept2019') or (file_header.exper_date == '07Oct2019') or (file_header.exper_date == '08Jul2019') or (file_header.exper_date == '23May2019'):
+    if (type(file_header) is type(None)) or \
+       (file_header.exper_date == '06Sept2019') or \
+       (file_header.exper_date == '07Oct2019') or \
+       (file_header.exper_date == '08Jul2019') or \
+       (file_header.exper_date == '23May2019') or \
+       (file_header.exper_date == 'Pilot'):
         return dict(SW='BKGDimage-pilot.png',SE='BKGDimage-pilot2.png',NE='BKGDimage-pilot3.png',NW='BKGDimage-pilot4.png')
     if (file_header.exper_date == '11Dec2019'):
         fname = 'dec-2019/BKGDimage-localCues_cropped.png'
@@ -883,7 +888,7 @@ def get_arena_picture_bounds(file_header=None,as_list=False):
     img_extent = [-97.0,97.0,-73.0,73.0]
     """
     the img_extent above is good for the following experiments:
-    (file_header.exper_date == '06Sept2019') or (file_header.exper_date == '07Oct2019') or (file_header.exper_date == '08Jul2019') or (file_header.exper_date == '23May2019')
+    (file_header.exper_date == '06Sept2019') or (file_header.exper_date == '07Oct2019') or (file_header.exper_date == '08Jul2019') or (file_header.exper_date == '23May2019') or (file_header.exper_date == 'Pilot')
     using the following pictures:
     arena_picture/BKGDimage-pilot.png
     arena_picture/BKGDimage-pilot2.png
@@ -955,7 +960,12 @@ def get_arena_to_arena_translate(file_header=None,pic_bounds=None,file_header_re
 
 def get_arena_center(file_header=None):
     c0 = [7.59409,-1.9734]
-    if (type(file_header) is type(None)) or (file_header.exper_date == '06Sept2019') or (file_header.exper_date == '07Oct2019') or (file_header.exper_date == '08Jul2019') or (file_header.exper_date == '23May2019'):
+    if (type(file_header) is type(None)) or \
+        (file_header.exper_date == '06Sept2019') or \
+        (file_header.exper_date == '07Oct2019') or \
+        (file_header.exper_date == '08Jul2019') or \
+        (file_header.exper_date == '23May2019') or \
+        (file_header.exper_date == 'Pilot'):
         return get_arena_to_arena_translate(file_header)(numpy.array(c0)) # this should be (almost) equivalent to the positions above, measured by the crop_arena_pictures script
     if (file_header.exper_date == '11Dec2019'): # 'dec-2019/BKGDimage-localCues_cropped.png'
         c0 = [0.9103981264637184, -1.217166666666671]
@@ -1022,7 +1032,12 @@ def get_arena_entrance_coord(file_header=None):
                  NE=get_coord(-34.0706,-45.1481),
                  SW=get_coord(48.4940,41.9264),
                  NW=get_coord(50.51,-43.9046))
-    if (type(file_header) is type(None)) or (file_header.exper_date == '06Sept2019') or (file_header.exper_date == '07Oct2019') or (file_header.exper_date == '08Jul2019') or (file_header.exper_date == '23May2019'):
+    if (type(file_header) is type(None)) or \
+        (file_header.exper_date == '06Sept2019') or \
+        (file_header.exper_date == '07Oct2019') or \
+        (file_header.exper_date == '08Jul2019') or \
+        (file_header.exper_date == '23May2019') or \
+        (file_header.exper_date == 'Pilot'):
         return d_ref
     if (file_header.exper_date == '11Dec2019'): # 'dec-2019/BKGDimage-localCues_cropped.png'
         d = dict(SE=numpy.array((-43.09217799,38.94933333)),
@@ -1141,7 +1156,12 @@ def get_arena_hole_coord(file_header=None):
                         [41.2533,24.5365],[42.1008,-6.55324],[43.5932,-19.9645],[44.7829,-32.7662],[46.0906,11.1253],[47.3475,30.6326],[47.59,1.06681],
                         [50.062,19.9645],[52.1111,-18.1357],[53.3522,-6.24843],[53.8981,-36.119],[54.3381,29.1086],[55.8153,8.38205],[58.1736,-27.2797],
                         [58.8757,17.8309],[63.0769,-8.99165],[63.407,3.50522] ] ) )
-    if (type(file_header) is type(None)) or (file_header.exper_date == '06Sept2019') or (file_header.exper_date == '07Oct2019') or (file_header.exper_date == '08Jul2019') or (file_header.exper_date == '23May2019'):
+    if (type(file_header) is type(None)) or \
+        (file_header.exper_date == '06Sept2019') or \
+        (file_header.exper_date == '07Oct2019') or \
+        (file_header.exper_date == '08Jul2019') or \
+        (file_header.exper_date == '23May2019') or \
+        (file_header.exper_date == 'Pilot'):
         return r # this should be (almost) equivalent to the positions above, measured by the crop_arena_pictures script
     if (file_header.exper_date == '11Dec2019'): # 'dec-2019/BKGDimage-localCues_cropped.png'
         r = numpy.array([ [-5.46238876,54.77250000],[6.67625293,54.77250000],[24.58074941,50.20812500],[-19.72529274,50.20812500],[-10.62131148,47.16520833],
@@ -1675,9 +1695,7 @@ def get_arena_target(file_header):
     experiment      = file_header.exper_date
     target_coords   = (numpy.nan,numpy.nan)
     
-    if ('Pilot' in experiment):
-        target_coords = 20.47, -39.91 #default coordinates
-    elif ('23May2019' == experiment):
+    if ('23May2019' == experiment) or ('Pilot' in experiment):
         target_coords = 20.47, -39.91 #default coordinates
     elif ('06Sept2019' == experiment) or ('07Oct2019' == experiment) or ('08Jul2019' == experiment) or ('18Jun2019' == experiment):
         #if trial_condition.isdigit() or ('probe' in trial_condition.lower()):
@@ -1740,7 +1758,7 @@ def get_arena_reverse_target(file_header):
 
     reverse_target_coords = (numpy.nan,numpy.nan)
     
-    if ('23May2019' == experiment):
+    if ('23May2019' == experiment) or ('Pilot' in experiment):
         #reverse_target_coords = -6.32, 36.62 #180deg rotated target coords
         reverse_target_coords = 20.47, -39.91 #actual target coordinates
         rotation_angle        = 0.0

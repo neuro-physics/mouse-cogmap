@@ -165,6 +165,115 @@ def mean_std_err_minmax(x,axis=0,return_as_struct=False):
     else:
         return avg,sd,se,m,M
 
+def cohen_d(x,y,axis=0):
+    """
+    axis -> observations in x and y
+    if axis == 0: col(x) must equal col(y): observations are in rows, so compares each column k of x with each column k of y
+    if axis == 1: row(x) must equal row(y): observations are in columns, so compares each row k of x with each row k of y
+    """
+    if not(axis in [0,1]):
+        raise ValueError('cohen_d ::: axis must be 0 or 1')
+    x = x if _is_numpy_array(x) else numpy.array(x)
+    y = y if _is_numpy_array(y) else numpy.array(y)
+    otheraxis = 1 - axis
+    if (x.ndim > 1):
+        if (y.ndim != x.ndim):
+            raise ValueError('cohen_d ::: ndim must match in x and y')
+        if x.shape[otheraxis] != y.shape[otheraxis]:
+            raise ValueError('cohen_d ::: if axis == 0, the number of columsn in x and y must match; for x == 1, the number of rows must match')
+    nx  = x.shape[axis] if x.ndim > 1 else x.size
+    ny  = y.shape[axis] if y.ndim > 1 else y.size
+    dof = nx + ny - 2
+    return (nanmean(x,axis=axis) - nanmean(y,axis=axis)) / numpy.sqrt(((nx-1)*nanstd(x, ddof=1, axis=axis) ** 2 + (ny-1)*nanstd(y, ddof=1, axis=axis) ** 2) / dof)
+
+def minmax(x):
+    return nanmin(x),nanmax(x)
+
+def stderr_sum(*se):
+    """
+    calculates the std error of a sum or subtraction of variables
+    (the sum of errors)
+
+    se[k] -> standard error of the k-th variable...
+    all se[k] must be of the same size (i.e., 1d numpy.ndarray of size N)
+
+    ref: https://www.geol.lsu.edu/jlorenzo/geophysics/uncertainties/Uncertaintiespart2.html
+    """
+    return numpy.sum(numpy.array([numpy.array(s).flatten() for s in se]),axis=0)
+
+def stddev_sum(*sd):
+    """
+    calculates the std deviation of a sum or subtraction of variables
+    (the sqrt of the sum of squared std devs)
+
+    sd[k] -> standard deviation of the k-th variable...
+    all sd[k] must be of the same size (i.e., 1d numpy.ndarray of size N)
+
+    ref: https://www.geol.lsu.edu/jlorenzo/geophysics/uncertainties/Uncertaintiespart2.html
+    """
+    return numpy.sqrt(numpy.sum(numpy.array([numpy.array(s).flatten()**2 for s in sd]),axis=0))
+
+def minmax_sum(Z,X_minmax):
+    """
+    Z        -> X[1] + X[2] + ... (+ or -)
+    X_minmax -> min (col 0) max (col 1) of each X variable: X_minmax[0] -> (min,max) of X[0]
+
+    this function converts the interval abs(max - min) as if it were a SE DeltaX, and then calculates min = Z - abs(max-min)/2; max = Z + abs(max - min)/2
+    """
+    dX       = [ numpy.abs(numpy.diff(mm,axis=1).flatten()) for mm in X_minmax ]
+    dZ       = stderr_sum(*dX)/2.0
+    Z_minmax = numpy.array([Z - dZ,Z + dZ]).T
+    return Z,Z_minmax
+
+def stderr_mult(Z,X,X_SE):
+    """
+    calculates the std error of the product or division of variables in X
+
+    Z is an 1d numpy.ndarray; all X[k] and X_SE[k] must match Z in type, size and shape
+
+    Z    -> resulting of the multiplication or division of X variables; e.g. X[0]*X[1]*...*X[N] = Z
+    X    -> tuple; each entry is a variable; e.g., X[0]*X[1]*...*X[N] = Z for multiplication
+    X_SE -> tuple; each entry is the stderr of the corresponding X variable: X_SE[k] is the stderr of X[k]
+
+    ref: https://www.geol.lsu.edu/jlorenzo/geophysics/uncertainties/Uncertaintiespart2.html
+    """
+    X    = numpy.array([numpy.array(x).flatten() for x in X   ])
+    X_SE = numpy.array([numpy.array(s).flatten() for s in X_SE])
+    Z    = Z if _is_numpy_array(Z) else numpy.array(Z)
+    Z_SE = Z * ( numpy.sum( X_SE/X, axis=0 ) )
+    return Z,Z_SE
+
+def stddev_mult(Z,X,X_SD):
+    """
+    calculates the std deviation of the product or division of variables in X
+
+    Z is an 1d numpy.ndarray; all X[k] and X_SD[k] must match Z in type, size and shape
+
+    Z    -> resulting of the multiplication or division of X variables; e.g. X[0]*X[1]*...*X[N] = Z
+    X    -> tuple; each entry is a variable; e.g., X[0]*X[1]*...*X[N] = Z for multiplication
+    X_SD -> tuple; each entry is the stderr of the corresponding X variable: X_SD[k] is the stderr of X[k]
+
+    ref: https://www.geol.lsu.edu/jlorenzo/geophysics/uncertainties/Uncertaintiespart2.html
+    """
+    X    = numpy.array([numpy.array(x).flatten() for x in X   ])
+    X_SD = numpy.array([numpy.array(s).flatten() for s in X_SD])
+    Z    = Z if _is_numpy_array(Z) else numpy.array(Z)
+    Z_SE = Z * numpy.sqrt( numpy.sum( (X_SD/X)**2, axis=0 ) )
+    return Z,Z_SE
+
+def minmax_mult(Z,X,X_minmax):
+    """
+    Z        -> X[1] * X[2] * ... (* or /)
+    X        -> tuple; each entry is a variable; e.g., X[0]*X[1]*...*X[N] = Z for multiplication
+    X_minmax -> min (col 0) max (col 1) of each X variable: X_minmax[0] -> (min,max) of X[0]
+
+    this function converts the interval abs(max - min) as if it were a SE DeltaX, and then calculates min = Z - abs(max-min)/2; max = Z + abs(max - min)/2
+    """
+    dX       = [ numpy.abs(numpy.diff(mm,axis=1).flatten()) for mm in X_minmax ]
+    dZ       = stderr_mult(Z,X,dX)[1]/2.0
+    Z_minmax = numpy.array([Z - dZ,Z + dZ]).T
+    return Z,Z_minmax
+
 def avg_of_avg(x_avg,x_std,x_err,x_min=None,x_max=None,axis=None):
     """
     returns the average of averages
@@ -1121,6 +1230,12 @@ def find_inter_func(x,y1,y2,useSpline=True,useSimpleMethod=False):
 
 #@jit(nopython=True,parallel=True, fastmath=True)
 def contains_nan(x):
+    if _is_numpy_array(x):
+        if x.size == 0:
+            return False
+    else:
+        if len(x) == 0:
+            return False
     k = numpy.argmax(numpy.isnan(x).astype(numpy.int64))
     return not( (k == 0) and (not numpy.isnan(x[0])))
 
@@ -1300,13 +1415,38 @@ def zscore(X,axis=0,return_mean_std=False):
     else:
         return (X - m) / s
 
+def _is_scipy_linreg_or_ttest_result(x):
+    return ('Ttest_indResult' in str(type(x))) or ('LinregressResult' in str(type(x)))
+
+def ttest(X_Controls, X_Test, zscore_to_controls=False,axis=0,**ttest_ind_args):
+    """
+    wrapper for scipy.stats.ttest_ind function
+
+    X_Controls         -> control group sample
+    X_Test             -> test group sample
+    axis               -> if 0 (default; observations in rows, variables in columns);
+                          if 1 (observations in columns, variables in rows)
+    zscore_to_controls -> if True, compares the Z-Scores of X_Test and X_Controls,
+                          both calculated from X_Controls mean and stddev
+    """
+    if zscore_to_control:
+        X_Test,X_Controls = zscore_to_control(X_Test,X_Controls,axis=axis)
+    return scipy.stats.ttest_ind(X_Controls,X_Test,axis=axis,**ttest_ind_args)
+
 def check_p_values(p_or_ttest_result,p_threshold,q_threshold=None):
     """
     checks whether p < p_threshold
     if q_threshold is set, then calculates FDR for the p values
     and checks whether p < p_FDR
     """
-    if 'Ttest_indResult' in str(type(p_or_ttest_result)):
+    if type(p_or_ttest_result) is list:
+        if (len(p_or_ttest_result) > 0):
+            if all(_is_scipy_linreg_or_ttest_result(pp) for pp in p_or_ttest_result):
+                p_or_ttest_result = numpy.array([ pp.pvalue for pp in  p_or_ttest_result ])
+                #print(p_or_ttest_result)
+        else:
+            return False
+    if _is_scipy_linreg_or_ttest_result(p_or_ttest_result):
         p = p_or_ttest_result.pvalue
     else:
         p = p_or_ttest_result
@@ -1318,7 +1458,7 @@ def check_p_values(p_or_ttest_result,p_threshold,q_threshold=None):
     if numpy.isscalar(p):
         return p < p_threshold
     if not(type(q_threshold) is type(None)):
-        p_FDR = get_FDR_p_threshold(p,q_threshold,'indep')
+        p_FDR       = get_FDR_p_threshold(p,q_threshold,'indep')
         p_threshold = p_FDR if p_FDR < p_threshold else p_threshold
     return p < p_threshold
 
@@ -1463,6 +1603,27 @@ def nanmax(x,**nanmaxargs):
         return numpy.empty(shape=shape)
     s = numpy.nanmax(x_masked,**nanmaxargs)
     return s.data if type(s) is numpy.ma.core.MaskedArray else s
+
+def linregress_col(x,y,**linregress_args):
+    """
+    a wrapper of linregress below, where we test each column of x versus the corresponding column in y
+    """
+    x = x if _is_numpy_array(x) else numpy.asarray(x)
+    y = y if _is_numpy_array(y) else numpy.asarray(y)
+
+    if x.ndim == 1:
+        if y.ndim != 1:
+            raise ValueError('y must be a 1d numpy.ndarray because x is a 1d numpy.ndarray')
+        return linregress(x,y,**linregress_args)
+    else:
+        if x.shape[1] != y.shape[1]:
+            raise ValueError('x and y must have the same number of columns')
+        return_linear_func = linregress_args['return_linear_func'] if 'return_linear_func' in linregress_args.keys() else False
+        r_lst = [ linregress(x[:,k], y[:,k], **linregress_args) for k in range(x.shape[1]) ]
+        if return_linear_func:
+            return unpack_list_of_tuples(r_lst)
+        else:
+            return r_lst
 
 def linregress(x,y=None,alternative='two-sided',return_linear_func=False):
     """

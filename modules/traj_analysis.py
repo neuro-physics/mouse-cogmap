@@ -490,6 +490,42 @@ def calc_partial_traveled_dist(track,mouse_part='center',use_integral=False):
             d_cumul = calc_traveled_dist_pyth(track['r_'+mouse_part],cumulative=True)
         return d_cumul
 
+def calc_traveled_dist_time_interval(track,dt=3.0,t0=None,t1=None,use_integral=False,mouse_part='center'):
+    """
+    calls "calc_traveled_dist" to calculate traveled distance in a given time interval
+     
+    if t0 and t1 are given    -> distance between times [t0,t1]
+    if t0 is given (no t1)    -> distance between times [t0,t0+dt]
+    if t1 is given (no t0)    -> distance between times [t1-dt,t1]
+    if dt is given (no t0,t1) -> positive dt: distance between times [end-dt,end]
+                                 negative dt: distance between times [0,end-abs(dt)]
+    """
+    mouse_part = mouse_part.lower()
+    assert mouse_part in ['center','nose','tail'],"mouse_part must be one of 'center','nose','tail'"
+    if type(track) is list:
+        return [ calc_traveled_dist_time_interval(tr,dt=dt,t0=t0,t1=t1,use_integral=use_integral,mouse_part=mouse_part) for tr in track ]
+    else:
+        if not ( misc.exists(t0) or misc.exists(t1) ):
+            # neither t0 nor t1 are given
+            if not misc.exists(dt):
+                raise ValueError('at least one of t1,t0,dt must be given')
+            if dt > 0:
+                t1 = track.time[-1]
+                t0 = t1 - dt
+            else:
+                t0 = track.time[0]
+                t1 = track.time[-1] - numpy.abs(dt)
+        else:
+            # either t0 or t1 (or both) are given
+            if not misc.exists(t0):
+                t0 = t1 - dt
+            if not misc.exists(t1):
+                t1 = t0 + dt
+        t0,t1 = sorted((t0,t1))
+        k     = numpy.nonzero(numpy.logical_and(track.time>=t0,track.time<=t1))[0]
+        return calc_velocity_abs_integral(track.velocity[k],track.time[k]) if use_integral else calc_traveled_dist_pyth(track['r_'+mouse_part][k,:])
+
+
 def calc_traveled_dist(track,r0=None,Tmax=None,t1_ind=None,t2_ind=None,use_integral=False,mouse_part='center'):
     """
     performs the line integral (with Simpson method) of the vector field r[t,:],
@@ -693,6 +729,50 @@ def calc_number_of_checks_histogram(d_checks,d_checks_threshold=20.0,less_than_t
     return misc.structtype(n=n_edges[:-1],P=S)
 
 
+def calc_time_checked_holes_before_target(track,hole_horizon,include_target=False,remove_target_check_duplicates=False,threshold_method='ampv',gamma=0.2,
+                                                use_alt_target=False,use_reverse_target=False,
+                                                r_target=None,ignore_entrance_positions=False,
+                                                use_velocity_minima=False,velocity_min_prominence=None,velmin_find_peaks_args=None,force_input_target=False):
+    """
+    returns the distance from every checked hole to the target of each track
+    """
+    if type(track) is list:
+        return [ calc_time_checked_holes_before_target(tr,hole_horizon,
+                                                    include_target                 = include_target                 ,
+                                                    remove_target_check_duplicates = remove_target_check_duplicates ,
+                                                    threshold_method               = threshold_method               ,
+                                                    gamma                          = gamma                          ,
+                                                    use_reverse_target             = use_reverse_target             ,
+                                                    r_target                       = r_target                       ,
+                                                    ignore_entrance_positions      = ignore_entrance_positions      ,
+                                                    use_velocity_minima            = use_velocity_minima            ,
+                                                    velocity_min_prominence        = velocity_min_prominence        ,
+                                                    velmin_find_peaks_args         = velmin_find_peaks_args         ,
+                                                    force_input_target             = force_input_target             ) for tr in track ]
+    else:
+        _,t,_,_ = find_slowing_down_close_to_hole(track,hole_horizon,threshold_method          = threshold_method          ,
+                                                                     gamma                     = gamma                     ,
+                                                                     return_pos_from           = 'hole'                    ,
+                                                                     ignore_entrance_positions = ignore_entrance_positions ,
+                                                                     use_velocity_minima       = use_velocity_minima       ,
+                                                                     velocity_min_prominence   = velocity_min_prominence   ,
+                                                                     velmin_find_peaks_args    = velmin_find_peaks_args    )
+        if (t.size > 0):
+            r_target = r_target if misc.exists(r_target) else track.r_target
+            if not force_input_target:
+                if use_alt_target:
+                    r_target = track.r_target_alt
+                elif use_reverse_target:
+                    r_target = track.r_target_reverse 
+            t_to_food = calc_time_to_food(track,r_target=r_target)
+            t         = t_to_food - t
+            if not(0.0 in t):
+                t = numpy.append(t,0.0)
+            return t
+        else:
+            return numpy.zeros(1)
+
+
 def calc_dist_checked_holes_target(track,hole_horizon,include_target=False,remove_target_check_duplicates=False,threshold_method='ampv',gamma=0.2,return_pos_from='hole',
                                          use_alt_target=False,use_reverse_target=False,use_closest_target=False,
                                          r_target=None,ignore_entrance_positions=False,
@@ -763,9 +843,12 @@ def _is_valid_normalize_by(normalize_by):
     return res
 
 def calc_number_of_checkings_near_position(track,r0,r0_horizon,hole_horizon,include_r0=True,remove_r0_duplicates=True,threshold_method='ampv',gamma=0.2,
-                                           ignore_entrance_positions=False,use_velocity_minima=False,velocity_min_prominence=None,velmin_find_peaks_args=None):
+                                           ignore_entrance_positions=False,use_velocity_minima=False,velocity_min_prominence=None,velmin_find_peaks_args=None,
+                                           randomize_check_positions=False):
     """
     finds all the hole-checking happening inside the circle centered in r0 with radius r0_horizon
+
+    randomize_check_positions -> if True, then before counting, the checks are uniformly spread across every arena hole
 
     returns:
         n_checks -> number of checks detected for each track
@@ -773,23 +856,30 @@ def calc_number_of_checkings_near_position(track,r0,r0_horizon,hole_horizon,incl
     """
     if type(track) is list:
         n_checks = misc.get_empty_list(len(track)) # index where a slowing down happened inside any hole event horizon
-        n_checks = [ calc_number_of_checkings_near_position(tr,r0,r0_horizon,hole_horizon,include_r0=include_r0,remove_r0_duplicates=remove_r0_duplicates,threshold_method=threshold_method,gamma=gamma,
-                                                               ignore_entrance_positions=ignore_entrance_positions,
-                                                               use_velocity_minima=use_velocity_minima,
-                                                               velocity_min_prominence=velocity_min_prominence,
-                                                               velmin_find_peaks_args=velmin_find_peaks_args) for tr in track ]
+        n_checks = [ calc_number_of_checkings_near_position(tr,r0,r0_horizon,hole_horizon,include_r0                 = include_r0                ,
+                                                                                          remove_r0_duplicates       = remove_r0_duplicates      ,
+                                                                                          threshold_method           = threshold_method          ,
+                                                                                          gamma                      = gamma                     ,
+                                                                                          ignore_entrance_positions  = ignore_entrance_positions ,
+                                                                                          use_velocity_minima        = use_velocity_minima       ,
+                                                                                          velocity_min_prominence    = velocity_min_prominence   ,
+                                                                                          velmin_find_peaks_args     = velmin_find_peaks_args    ,
+                                                                                          randomize_check_positions  = randomize_check_positions ) for tr in track ]
     else:
         # first find all the positions where a hole-checking event happened
         _,_,r_checks,_ = find_slowing_down_close_to_hole(track,hole_horizon,threshold_method          = threshold_method          ,
-                                                                        gamma                     = gamma                     ,
-                                                                        return_pos_from           = 'hole'                    ,
-                                                                        ignore_entrance_positions = ignore_entrance_positions ,
-                                                                        use_velocity_minima       = use_velocity_minima       ,
-                                                                        velocity_min_prominence   = velocity_min_prominence   ,
-                                                                        velmin_find_peaks_args    = velmin_find_peaks_args    )
+                                                                            gamma                     = gamma                     ,
+                                                                            return_pos_from           = 'hole'                    ,
+                                                                            ignore_entrance_positions = ignore_entrance_positions ,
+                                                                            use_velocity_minima       = use_velocity_minima       ,
+                                                                            velocity_min_prominence   = velocity_min_prominence   ,
+                                                                            velmin_find_peaks_args    = velmin_find_peaks_args    )
         r0 = numpy.array(r0).flatten()
         n_checks = 0
         if r_checks.size > 0:
+            if randomize_check_positions:
+                # selecting random holes for each detected hole check
+                r_checks = track.r_arena_holes[numpy.random.randint(0,high=track.r_arena_holes.shape[0],size=r_checks.shape[0]),:]
             d        = _include_target_in_number_of_checks(numpy.linalg.norm(r_checks - r0,axis=1),include_r0,remove_r0_duplicates)
             n_checks = numpy.nonzero(d <= r0_horizon)[0].size
     return n_checks
@@ -836,7 +926,7 @@ def calc_number_of_checkings_per_hole(track,hole_horizon,threshold_method='ampv'
         r0 = numpy.asarray(r0)
 
     if misc.exists(r0) and misc.exists(radius_of_interest):
-        track = remove_outside_from_region(track,r0,radius_of_interest,mouse_part='nose',copy_track=True)
+        track = remove_outside_of_radius(track,r0,radius_of_interest,mouse_part='nose',copy_track=True)
 
 
     # first find all the positions where a hole-checking event happened
@@ -876,7 +966,7 @@ def _find_unique_positions(r,horizon=1e-8,return_indices=False):
     r       -> numpy 2d array; 1 position per row
     horizon -> precision, such that if a position is closer to another than horizon, they are considered the same
     """
-    if not misc._is_numpy_array:
+    if not misc._is_numpy_array(r):
         raise ValueError('r must be a 2d numpy array')
     checked = numpy.zeros(r.shape[0],dtype=bool)
     r_un    = []
@@ -942,7 +1032,7 @@ def find_slowing_down_close_to_hole(track,hole_horizon,threshold_method         
                                                                                     join_vmin_vthresh_output  = join_vmin_vthresh_output   )
         return k_ls,t_ls,r_ls,v_th_ls
     else:
-        return_mouse_pos = return_pos_from.lower() == 'mouse'
+        return_mouse_pos            = return_pos_from.lower() == 'mouse'
         tind_inter,_,r_inter,r_hole = intersect_trajectory_arena_holes(track,hole_horizon,r_arena_holes=track.r_arena_holes,t1_ind=t1_ind,t2_ind=t2_ind,ignore_entrance_positions=ignore_entrance_positions)
         if use_velocity_minima:
             v_th                      = calc_threshold(track.velocity, gamma, threshold_method=threshold_method)
@@ -952,7 +1042,8 @@ def find_slowing_down_close_to_hole(track,hole_horizon,threshold_method         
         else:
             tind_crossing,_,_,v_th    = calc_velocity_crossings(track,threshold_method=threshold_method,gamma=gamma,only_slowing_down=True,t1_ind=t1_ind,t2_ind=t2_ind)
             tind_crossing_extra       = numpy.array([])
-        
+        if (misc._is_numpy_array(v_th) and (v_th.size == 0)):
+            v_th = 0.0
         k,t,r                         = _find_slowing_down_close_to_hole_internal(track,tind_crossing      ,tind_inter,return_mouse_pos,r_inter,r_hole)
         if tind_crossing_extra.size > 0:
             k_extra,t_extra,r_extra   = _find_slowing_down_close_to_hole_internal(track,tind_crossing_extra,tind_inter,return_mouse_pos,r_inter,r_hole)
@@ -1357,11 +1448,11 @@ def calc_mouse_deviation_from_target(track,r_target,absolute_food_vec=True,retur
         else:
             return c
 
-def calc_time_to_food(track):
+def calc_time_to_food(track,r_target=None):
     """
-    returns the time (in seconds) that the mouse took to get to the minimum distance to the food
+    returns the time (in seconds) that the mouse took to get to the minimum distance to the food (or r_target if given)
     """
-    _,t_food = remove_path_after_food(track,return_t_to_food=True)
+    _,t_food = remove_path_after_food(track,return_t_to_food=True,r_target=r_target,copy_tracks=True)
     return t_food
 
 def calc_mouse_perp_dist_to_food_line(track,return_abs_value=False):
@@ -1394,8 +1485,8 @@ def calc_mouse_perp_dist_to_line(track,p0,p1,return_abs_value=False):
 
     this function calculates the perpendicular distance of the mouse to that line
     """
-    p0 = numpy.asarray(p0)
-    p1 = numpy.asarray(p1)
+    p0 = p0 if misc._is_numpy_array(p0) else numpy.asarray(p0).flatten()
+    p1 = p1 if misc._is_numpy_array(p1) else numpy.asarray(p1).flatten()
     if type(track) is list:
         d = misc.get_empty_list(len(track))
         for k,tr in enumerate(track):
@@ -1408,6 +1499,67 @@ def calc_mouse_perp_dist_to_line(track,p0,p1,return_abs_value=False):
         d = numpy.linalg.norm(n,axis=1) * numpy.sin(theta)
         return numpy.abs(d) if return_abs_value else d
 
+def remove_outside_of_straightline(track,p0,p1,distance,mouse_part='nose',copy_track=True):
+    """
+    removes trajectory parts outside of "distance" perpendicular to the line defined by the p0,p1 points
+
+    p0,p1    -> (2,) or (1,2) numpy.ndarray, containing (x,y) coordinates of the points that define the straight line
+    distance -> perpendicular distance around the straight line to keep (in units of track.unit_r)
+
+    returns
+        trimmed track(s)
+    """
+    if type(track) is list:
+        return [ remove_outside_of_straightline(tr,p0,p1,distance,mouse_part=mouse_part,copy_track=copy_track) for tr in track  ]
+    else:
+        r_field = 'r_'+mouse_part.lower()
+        if not track.IsField(r_field):
+            raise ValueError('unknown mouse_part')
+        d    = calc_mouse_perp_dist_to_line(track,p0,p1,return_abs_value=True)
+        k    = numpy.nonzero(d <= distance)[0]
+        if copy_track:
+            track = copy.deepcopy(track)
+        return _trim_trajectory(track,k)
+
+def remove_outside_foodline(track,distance,use_main_target=False,use_reverse_target=False,use_between_targets=False,use_between_reverse_targets=False,mouse_part='nose',copy_track=True):
+    """
+    removes trajectory outside of the food line
+
+    use_main_target             -> if True (default), foodline defined by r_start          and r_target
+    use_reverse_target          -> if True,           foodline defined by r_start          and r_target_reverse
+    use_between_targets         -> if True,           foodline defined by r_target         and r_target_alt
+    use_between_reverse_targets -> if True,           foodline defined by r_target_reverse and r_target_alt_reverse
+
+    only 1 of these four parameters must be true
+
+    returns
+        trimmed track(s)
+    """
+    if type(track) is list:
+        return [ remove_outside_foodline(tr,distance,use_main_target=use_main_target,use_reverse_target=use_reverse_target,use_between_targets=use_between_targets,use_between_reverse_targets=use_between_reverse_targets,mouse_part=mouse_part,copy_track=copy_track) for tr in track ]
+    else:
+        if not any((use_main_target,use_reverse_target,use_between_targets,use_between_reverse_targets)):
+            use_main_target = True # set default
+        if not _has_single_true(use_main_target,use_reverse_target,use_between_targets,use_between_reverse_targets):
+            raise ValueError('only of the following can be True: use_main_target,use_reverse_target,use_between_targets,use_between_reverse_targets')
+        if use_main_target:
+            p0 = track.r_start
+            p1 = track.r_target
+        elif use_reverse_target:
+            p0 = track.r_start
+            p1 = track.r_target_reverse
+        elif use_between_targets:
+            p0 = track.r_target
+            p1 = track.r_target_alt
+        elif use_between_reverse_targets:
+            p0 = track.r_target_reverse
+            p1 = track.r_target_alt_reverse
+        return remove_outside_of_straightline(track,p0,p1,distance,mouse_part=mouse_part,copy_track=copy_track)
+
+def _has_single_true(*v):
+    a = numpy.array(v,dtype=bool)
+    return numpy.nonzero(a)[0].size == 1
+
 def remove_slow_parts(track,threshold_method='ampv',gamma=0.2,return_threshold=False,copy_track=True):
     """
     removes parts of the trajectory where velocity is below a certain threshold
@@ -1419,22 +1571,17 @@ def remove_slow_parts(track,threshold_method='ampv',gamma=0.2,return_threshold=F
         k    = numpy.nonzero(track.velocity >= v_th)[0]
         if copy_track:
             track = copy.deepcopy(track)
-        track.time     = track.time[k]
-        track.velocity = track.velocity[k]
-        track.r_tail   = track.r_tail[k,:]
-        track.r_center = track.r_center[k,:]
-        track.r_nose   = track.r_nose[k,:]
         if return_threshold:
-            return track,v_th
+            return _trim_trajectory(track,k),v_th
         else:
-            return track
+            return _trim_trajectory(track,k)
 
-def remove_outside_from_region(track,r0,radius,mouse_part='nose',copy_track=True):
+def remove_outside_of_radius(track,r0,radius,mouse_part='nose',copy_track=True):
     """
     removes parts of the trajectory outside of the circle centered in r0 = (x0,y0), with the given radius
     """
     if type(track) is list:
-        return [ remove_outside_from_region(tr,r0,radius,mouse_part=mouse_part,copy_track=copy_track) for tr in track ]
+        return [ remove_outside_of_radius(tr,r0,radius,mouse_part=mouse_part,copy_track=copy_track) for tr in track ]
     else:
         r_field = 'r_'+mouse_part.lower()
         if not track.IsField(r_field):
@@ -1444,12 +1591,7 @@ def remove_outside_from_region(track,r0,radius,mouse_part='nose',copy_track=True
         k    = numpy.nonzero(d <= radius)[0]
         if copy_track:
             track = copy.deepcopy(track)
-        track.time     = track.time[k]
-        track.velocity = track.velocity[k]
-        track.r_tail   = track.r_tail[k,:]
-        track.r_center = track.r_center[k,:]
-        track.r_nose   = track.r_nose[k,:]
-        return track
+        return _trim_trajectory(track,k)
 
 
 def _get_start_end_time_slice(time,t0_frac=0.0,dt_frac=1.0,return_idx=False):
@@ -1469,12 +1611,38 @@ def _get_start_end_time_slice(time,t0_frac=0.0,dt_frac=1.0,return_idx=False):
     else:
         return slice(T0,Tmax)
 
-def slice_track_by_time(track,t0,t1=None,copy_track=True):
+def slice_track_by_time(track,dt=None,t0=None,t1=None,copy_track=True):
+    """
+    slice time by time interval
+
+    if t0 and t1 are given    -> time between [t0,t1]
+    if t0 is given (no t1)    -> time between [t0,t0+dt]
+    if t1 is given (no t0)    -> time between [t1-dt,t1]
+    if dt is given (no t0,t1) -> positive dt: time between [end-dt,end];
+                                 negative dt: time between [0,end-abs(dt)]
+    """
     if type(track) is list:
-        return [ slice_track_by_time(tr,t0,t1=t1,copy_track=copy_track) for tr in track ]
+        return [ slice_track_by_time(tr,dt=dt,t0=t0,t1=t1,copy_track=copy_track) for tr in track ]
     else:
+        if not ( misc.exists(t0) or misc.exists(t1) ):
+            # neither t0 nor t1 are given
+            if not misc.exists(dt):
+                raise ValueError('at least one of t1,t0,dt must be given')
+            if dt > 0:
+                t1 = track.time[-1]
+                t0 = t1 - dt
+            else:
+                t0 = track.time[0]
+                t1 = track.time[-1] - numpy.abs(dt)
+        else:
+            # either t0 or t1 (or both) are given
+            if not misc.exists(t0):
+                t0 = t1 - dt
+            if not misc.exists(t1):
+                t1 = t0 + dt
+        t0,t1 = sorted((t0,t1))
         t0_ind = numpy.argmin(numpy.abs(track.time-t0))
-        t1_ind = numpy.argmin(numpy.abs(track.time-t1)) if misc.exists(t1) else track.time.size-1
+        t1_ind = numpy.argmin(numpy.abs(track.time-t1))
         return slice_track(track,slice(t0_ind,t1_ind),copy_track=copy_track)
 
 def slice_track_by_time_frac(track,t0_frac=0.0,dt_frac=1.0,copy_track=True):
@@ -1509,13 +1677,16 @@ def slice_track(track,slices,copy_track=True):
         if copy_track:
             track = copy.deepcopy(track)
         k = numpy.r_[slices]
-        track.time      = track.time[k]
-        track.direction = track.direction[k]
-        track.velocity  = track.velocity[k]
-        track.r_tail    = track.r_tail[k,:]
-        track.r_center  = track.r_center[k,:]
-        track.r_nose    = track.r_nose[k,:]
-        return track
+        return _trim_trajectory(track,k)
+
+def _trim_trajectory(track,ind_to_keep):
+    track.time      =      track.time[ind_to_keep]
+    track.direction = track.direction[ind_to_keep]
+    track.velocity  =  track.velocity[ind_to_keep]
+    track.r_tail    =    track.r_tail[ind_to_keep,:]
+    track.r_center  =  track.r_center[ind_to_keep,:]
+    track.r_nose    =    track.r_nose[ind_to_keep,:]
+    return track
 
 def calc_curvature(track,mouse_part='nose',eps=1.0e-10):
     """

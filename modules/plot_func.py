@@ -31,6 +31,14 @@ import scipy.interpolate
 #     m_sd_se_tuple_X -> (mean,sd,se) of group X
 #     """
 
+def savefig(fileName,format='png',dpi=300,facecolor=(1,1,1,1),bbox_inches='tight', verbose=True, **savefig_args):
+    """
+    wrapper for matplotlib.pyplot.savefig function
+    """
+    if verbose:
+        print(' *** saving ... ', fileName)
+    plt.savefig(fileName, format=format,dpi=dpi,facecolor=facecolor,bbox_inches=bbox_inches,**savefig_args)
+
 def plot_stairs_with_edge(ax=None,data=None,edges=None,label='',fill=False,show_edges=True,edgecolor=None,facecolor=None,color=None,facealpha=1.0,edgealpha=1.0,**stairs_kwargs):
     ax = ax if misc.exists(ax) else plt.gca()
     assert misc.exists(data), "you must input some data"
@@ -115,7 +123,7 @@ def plot_arena_grid(ax,G_or_L,track=None,line_color=None,line_style='--',show_gr
         l.append(ax.add_patch(grid_contour))
     return l
 
-def _annotate_boxplot(ax, x1_ind, x2_ind, data, data_max=None, dy=None, TXT=None, color='k', is_log_scale=False, x1_plot_coord=None, x2_plot_coord=None, use_global_min_max=False, data_min=None, use_min=False, line_args=None, txt_args=None, symbol_args=None):
+def _annotate_boxplot(ax, x1_ind, x2_ind, data, data_max=None, dy=None, TXT=None, color='k', is_log_scale=False, x1_plot_coord=None, x2_plot_coord=None, use_global_min_max=False, data_min=None, use_min=False, line_args=None, txt_args=None, symbol_args=None, bracket_size=None, dy_bracket=None, dy_txt=None):
     get_func_value = lambda func,d: func(numpy.array(data,dtype=float).flatten()) if use_global_min_max else func((func(d[x1_ind]),func(d[x2_ind]))) # func=max, and max(max(data[x1_ind-1]),max(data[x2_ind-1]))
     dy_default     = 1.15 if is_log_scale else 2.0
     x1_plot_coord  = x1_plot_coord if misc.exists(x1_plot_coord) else x1_ind
@@ -123,12 +131,17 @@ def _annotate_boxplot(ax, x1_ind, x2_ind, data, data_max=None, dy=None, TXT=None
     data_max       = data_max      if misc.exists(data_max)      else get_func_value(numpy.max,data)
     data_min       = data_min      if misc.exists(data_min)      else get_func_value(numpy.min,data)
     dy             = dy            if misc.exists(dy)            else dy_default
-    operator       = (float.__truediv__ if is_log_scale else float.__sub__) if use_min else (float.__mul__ if is_log_scale else float.__add__)
+    dy_txt         = dy_txt        if misc.exists(dy_txt)        else 0.0
+    dy_bracket     = dy_bracket    if misc.exists(dy_bracket)    else 0.0
+    bracket_size   = bracket_size  if misc.exists(bracket_size)  else 1.0
+    operator       = (float.__truediv__ if is_log_scale else float.__sub__ ) if use_min else (float.__mul__  if is_log_scale else float.__add__)
+    operator_np    = (numpy.divide      if is_log_scale else numpy.subtract) if use_min else (numpy.multiply if is_log_scale else numpy.add    )
     displace_y     = lambda y0,delta_y: operator(float(y0),float(delta_y))
+    displace_y_np  = lambda y0,delta_y: operator_np(y0,delta_y)
     data_lim       = data_min if use_min else data_max
     new_data_lim   = displace_y(data_lim,dy)
-    y, h, col      = new_data_lim, dy, color
-    y_val          = [y, displace_y(y,h), displace_y(y,h), y]
+    y, h, col      = new_data_lim, (bracket_size*dy), color
+    y_val          = numpy.array([y, displace_y(y,h), displace_y(y,h), y])
     #if is_log_scale:
     #    if not misc.exists(dy):
     #        dy = 1.15
@@ -139,15 +152,16 @@ def _annotate_boxplot(ax, x1_ind, x2_ind, data, data_max=None, dy=None, TXT=None
     #    new_data_max = data_max + dy
     #y, h, col = new_data_max, dy, color
     #y_val = [y, y*h, y*h, y] if is_log_scale else [y, y+h, y+h, y]
-    ax.plot([x1_plot_coord, x1_plot_coord, x2_plot_coord, x2_plot_coord], y_val, **_get_kwargs(line_args, linewidth=1.5, color=col))
+    ax.plot(numpy.array([x1_plot_coord, x1_plot_coord, x2_plot_coord, x2_plot_coord]), displace_y_np(y_val,dy_bracket), **_get_kwargs(line_args, linewidth=1.5, color=col))
     y0 = displace_y(y,h*dy*dy) if is_log_scale else ( displace_y(y,h) if misc.exists(TXT) else displace_y(y,3*h) )
-    if type(TXT) is type(None):
-        #y0 = y*h*dy*dy if is_log_scale else y+3*h
-        ax.plot((x1_plot_coord+x2_plot_coord)*.5, y0, **_get_kwargs(symbol_args,markersize=6, marker=(5,2), linestyle='none', color=col))
-    else:
+    y0 = displace_y(displace_y(y0,dy_bracket),dy_txt)
+    if misc.exists(TXT):
         #y0 = y*h*dy*dy if is_log_scale else y+h
         txt_va = 'top' if use_min else 'bottom' 
         ax.text((x1_plot_coord+x2_plot_coord)*.5, y0, TXT, **_get_kwargs(txt_args,ha='center', va=txt_va, color=col))
+    else:
+        #y0 = y*h*dy*dy if is_log_scale else y+3*h
+        ax.plot((x1_plot_coord+x2_plot_coord)*.5, y0, **_get_kwargs(symbol_args,markersize=6, marker=(5,2), linestyle='none', color=col))
     return displace_y(y0,dy) #y0*dy if is_log_scale else y0+dy
 
 def plot_boxplot(ax,data,labels,colors=None,significance=None,data_std=None,is_log_scale=False,boxplotargs=None,errorbarargs=None,positions=None):
@@ -167,14 +181,17 @@ def plot_boxplot(ax,data,labels,colors=None,significance=None,data_std=None,is_l
     https://seaborn.pydata.org/generated/seaborn.boxplot.html
     """
     #N = len(data)
-    colors       = get_tab10_colors(len(data))             if type(colors)       is type(None) else colors
-    positions    = numpy.arange(len(data))                 if type(positions)    is type(None) else positions
-    data_std     = misc.get_empty_list(len(data))          if type(data_std)     is type(None) else data_std
-    #data_control = misc.get_empty_list(len(data))  if type(data_control) is type(None) else data_control
-    boxplotargs  = dict()                                  if type(boxplotargs)  is type(None) else boxplotargs
-    errorbarargs = dict()                                  if type(errorbarargs) is type(None) else errorbarargs
-    boxplotargs  = misc.set_default_kwargs(boxplotargs, patch_artist=True, vert=True, widths=0.2, meanline=True, showmeans=False, notch=False, boxprops=dict(linewidth=0.5,alpha=0.2), medianprops=dict(linewidth=3,color='k'),whiskerprops=dict(color=(0,0,0,0)), showcaps=False)
-    errorbarargs = misc.set_default_kwargs(errorbarargs,fmt='o',linewidth=3)
+    colors                      = get_tab10_colors(len(data))             if type(colors)       is type(None) else colors
+    positions                   = numpy.arange(len(data))                 if type(positions)    is type(None) else positions
+    data_std                    = misc.get_empty_list(len(data))          if type(data_std)     is type(None) else data_std
+    #data_control               = misc.get_empty_list(len(data))          if type(data_control) is type(None) else data_control
+    boxplotargs                 = dict()                                  if type(boxplotargs)  is type(None) else boxplotargs
+    errorbarargs                = dict()                                  if type(errorbarargs) is type(None) else errorbarargs
+    boxplotargs                 = misc.set_default_kwargs(boxplotargs, patch_artist=True, vert=True, widths=0.2, meanline=True, showmeans=False, notch=False, boxprops=dict(), medianprops=dict(), whiskerprops=dict(), showcaps=False)
+    boxplotargs['boxprops']     = misc.set_default_kwargs(boxplotargs['boxprops']    ,linewidth=0.5,alpha=0.2)
+    boxplotargs['medianprops']  = misc.set_default_kwargs(boxplotargs['medianprops'] ,linewidth=3,color='k')
+    boxplotargs['whiskerprops'] = misc.set_default_kwargs(boxplotargs['whiskerprops'],color=(0,0,0,0))
+    errorbarargs                = misc.set_default_kwargs(errorbarargs,fmt='o',linewidth=3)
     #data_labels_fake = [ k for k in positions ]
     #color_palette    = { lab:cc for lab,cc in zip(data_labels_fake,colors) }
     #dfs = [ _get_dataframe_for_boxplot(lab,x,None) for x,lab in zip(data,data_labels_fake) ] #for x,lab,x_control in zip(data,labels,data_control)
@@ -189,9 +206,9 @@ def plot_boxplot(ax,data,labels,colors=None,significance=None,data_std=None,is_l
     get_data_std = lambda k,dd: data_std[k] if not(type(data_std[k]) is type(None)) else misc.nanstd(dd)
     for k,(p,dd) in enumerate(zip(positions,data)):
         ax.errorbar(p, misc.nanmean(dd), yerr=get_data_std(k,dd), color=colors[k], **errorbarargs)
-    if not(type(significance) is type(None)):
-        if len(significance)>0:
-            mm=misc.nanmax(misc.asarray_nanfill(data).flatten())
+    if misc.exists(significance):
+        if len(significance) > 0:
+            mm = misc.nanmax(misc.asarray_nanfill(data).flatten())
             for i,ind in enumerate(significance):
                 for j in numpy.nonzero(ind)[0]:
                     mm = _annotate_boxplot(ax,i,j,data,data_max=mm,is_log_scale=is_log_scale,color=colors[i],x1_plot_coord=positions[i],x2_plot_coord=positions[j])
@@ -792,7 +809,11 @@ def _plot_hole_check_spatial_distribution(track,r,r_count,r_target,r_mean,r_eigd
                                           show_holes          =  False,
                                           holes_args          =   None,
                                           ellipse_args        =   None,
-                                          ellipse_center_args =   None):
+                                          ellipse_center_args =   None,
+                                          scale_point_size    =   True,
+                                          show_dispersion     =   True,
+                                          scale_color         =   True,
+                                          color_checks_single =   'k' ):
     """
     """
     if not misc.exists(ax):
@@ -822,10 +843,12 @@ def _plot_hole_check_spatial_distribution(track,r,r_count,r_target,r_mean,r_eigd
     
     T_r_count = misc.LinearTransf((r_count.min(),r_count.max()),(cmap_start_fraction,r_count.max()))
 
-    scatter_args = _get_kwargs(scatter_args)
-    min_alpha    = scatter_args.pop('min_alpha',None)
-    alpha_values = ((1.0-min_alpha)*r_count+min_alpha) if misc.exists(min_alpha) else 1.0
-    ax.scatter(r[:,0] ,r[:,1] ,s=point_size*r_count,c=get_gradient(cmap_name=cmap_name)(T_r_count(r_count)),**_get_kwargs(scatter_args,marker='o',edgecolors='none',alpha=alpha_values   ))
+    scatter_args       = _get_kwargs(scatter_args)
+    min_alpha          = scatter_args.pop('min_alpha',None)
+    alpha_values       = ((1.0-min_alpha)*r_count+min_alpha)                   if misc.exists(min_alpha) else 1.0
+    point_size_to_plot = point_size*r_count                                    if scale_point_size       else point_size
+    color_to_plot      = get_gradient(cmap_name=cmap_name)(T_r_count(r_count)) if scale_color            else color_checks_single
+    ax.scatter(r[:,0] ,r[:,1] ,s=point_size_to_plot,c=color_to_plot,**_get_kwargs(scatter_args,marker='o',edgecolors='none',alpha=alpha_values   ))
     if misc.exists(r_target):
         if is_target1_present:
             edge_color  = get_color_local('w','k')
@@ -856,10 +879,11 @@ def _plot_hole_check_spatial_distribution(track,r,r_count,r_target,r_mean,r_eigd
         target2_args              = _get_kwargs(target2_args      , fillstyle=fill_style,markerfacecolor=mface_color,markeredgewidth=medge_width,alpha=alpha_target2,label=target2_label,labelArgs=dict() )
         target2_args['labelArgs'] = target2_label_args
         plot_point(r_target2,fmt='o',color=edge_color,markersize=7, ax=ax , pointArgs=target2_args)
-    ellipse_args        = _get_kwargs(ellipse_args,show_center=True, facecolor='none', edgecolor=get_color_local('w','k'), linestyle='--', linewidth=2)
-    ellipse_center_args = _get_kwargs(ellipse_center_args,markeredgewidth=3,color=get_color_local('w','k'),marker='x')
-    ellipse_args['center_args'] = ellipse_center_args
-    draw_ellipse(r_mean , r_eigdir , r_disp , ax=ax, **ellipse_args)
+    if show_dispersion:
+        ellipse_args                = _get_kwargs(ellipse_args,show_center=True, facecolor='none', edgecolor=get_color_local('w','k'), linestyle='--', linewidth=2)
+        ellipse_center_args         = _get_kwargs(ellipse_center_args,markeredgewidth=3,color=get_color_local('w','k'),marker='x')
+        ellipse_args['center_args'] = ellipse_center_args
+        draw_ellipse(r_mean , r_eigdir , r_disp , ax=ax, **ellipse_args)
     return ax
 
 def plot_dispersion(r_mean, r_eigdir, r_disp, ax=None, show_center=True, color=None, marker=None, center_args=None, **ellipse_args):

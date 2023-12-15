@@ -618,6 +618,9 @@ def get_filename_with_parentdir(path):
 def get_filename(path):
     return os.path.split(path)[1]
 
+def get_dirname(path):
+    return os.path.split(path)[0]
+
 def list_of_arr_to_arr_of_obj(X):
     n = len(X)
     Y = numpy.empty((n,),dtype=object)
@@ -682,7 +685,7 @@ def get_track_output_filename(base_dir,file_header,ext='.mat',join_with_output_d
     if join_with_output_dir:
         return os.path.join(get_track_output_dir(base_dir,file_header),fname) + ext
     else:
-        return fname
+        return fname + ext
 
 def check_and_get_filename(fn):
     n = 0
