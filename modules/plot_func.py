@@ -105,7 +105,7 @@ def plot_arena_grid(ax,G_or_L,track=None,line_color=None,line_style='--',show_gr
     """
     L = G_or_L if type(G_or_L) is int else G_or_L.shape[0]
     line_color = numpy.array((0,0,0,0.5),float) if line_color is None else numpy.asarray(line_color).astype(float)
-    X_arena_lim, Y_arena_lim = plib.get_arena_grid_limits(track=track)
+    X_arena_lim, Y_arena_lim = plib.get_arena_grid_limits(r_center=track.r_arena_center)#track=track)
     l = []
     if show_grid_lines:
         l_x = numpy.linspace(X_arena_lim[0],X_arena_lim[1],L+1)[1:-1]
@@ -611,7 +611,7 @@ def plot_arena_sketch(track,showAllEntrances=False,arenaPicture=False,ax=None,sh
                     otherwise, arenaPicture maybe the result of imread (a numpy array with the pixels of the arena to be plotted with imshow)
     """
     fig_w,fig_h = 8,6
-    arena_wh = track.arena_picture_wh #get_arena_picture_file_width_height()
+    arena_wh = track.arena_picture_wh if has_arena_pic_to_plot(arenaPicture) else [640,480] #get_arena_picture_file_width_height()
     ax_w = 1.2
     ax_hw_ratio = arena_wh[1] / arena_wh[0] # h and w of the arena_picture
     ax_h = ax_w * ax_hw_ratio
