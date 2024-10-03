@@ -105,7 +105,7 @@ def plot_arena_grid(ax,G_or_L,track=None,line_color=None,line_style='--',show_gr
     """
     L = G_or_L if type(G_or_L) is int else G_or_L.shape[0]
     line_color = numpy.array((0,0,0,0.5),float) if line_color is None else numpy.asarray(line_color).astype(float)
-    X_arena_lim, Y_arena_lim = plib.get_arena_grid_limits(r_center=track.r_arena_center)#track=track)
+    X_arena_lim, Y_arena_lim = plib.get_arena_grid_limits(track=track)
     l = []
     if show_grid_lines:
         l_x = numpy.linspace(X_arena_lim[0],X_arena_lim[1],L+1)[1:-1]
@@ -131,8 +131,8 @@ def _annotate_boxplot(ax, x1_ind, x2_ind, data, data_max=None, dy=None, TXT=None
     data_max       = data_max      if misc.exists(data_max)      else get_func_value(numpy.max,data)
     data_min       = data_min      if misc.exists(data_min)      else get_func_value(numpy.min,data)
     dy             = dy            if misc.exists(dy)            else dy_default
-    dy_txt         = dy_txt        if misc.exists(dy_txt)        else 0.0
-    dy_bracket     = dy_bracket    if misc.exists(dy_bracket)    else 0.0
+    dy_txt         = dy_txt        if misc.exists(dy_txt)        else (1.0 if is_log_scale else 0.0)
+    dy_bracket     = dy_bracket    if misc.exists(dy_bracket)    else (1.0 if is_log_scale else 0.0)
     bracket_size   = bracket_size  if misc.exists(bracket_size)  else 1.0
     operator       = (float.__truediv__ if is_log_scale else float.__sub__ ) if use_min else (float.__mul__  if is_log_scale else float.__add__)
     operator_np    = (numpy.divide      if is_log_scale else numpy.subtract) if use_min else (numpy.multiply if is_log_scale else numpy.add    )
@@ -164,7 +164,7 @@ def _annotate_boxplot(ax, x1_ind, x2_ind, data, data_max=None, dy=None, TXT=None
         ax.plot((x1_plot_coord+x2_plot_coord)*.5, y0, **_get_kwargs(symbol_args,markersize=6, marker=(5,2), linestyle='none', color=col))
     return displace_y(y0,dy) #y0*dy if is_log_scale else y0+dy
 
-def plot_boxplot(ax,data,labels,colors=None,significance=None,data_std=None,is_log_scale=False,boxplotargs=None,errorbarargs=None,positions=None):
+def plot_barplot(ax,data,labels,colors=None,significance=None,data_std=None,is_log_scale=False,barplotargs=None,errorbarargs=None,positions=None,annotationargs=None):
     """
     data         -> a list of variables (each element contains all the data points used to calculate the average of that element, etc )
     colors       -> list of colors for each entry in data
@@ -181,12 +181,70 @@ def plot_boxplot(ax,data,labels,colors=None,significance=None,data_std=None,is_l
     https://seaborn.pydata.org/generated/seaborn.boxplot.html
     """
     #N = len(data)
-    colors                      = get_tab10_colors(len(data))             if type(colors)       is type(None) else colors
-    positions                   = numpy.arange(len(data))                 if type(positions)    is type(None) else positions
-    data_std                    = misc.get_empty_list(len(data))          if type(data_std)     is type(None) else data_std
-    #data_control               = misc.get_empty_list(len(data))          if type(data_control) is type(None) else data_control
-    boxplotargs                 = dict()                                  if type(boxplotargs)  is type(None) else boxplotargs
-    errorbarargs                = dict()                                  if type(errorbarargs) is type(None) else errorbarargs
+    colors                      = get_tab10_colors(len(data))             if type(colors)         is type(None) else colors
+    positions                   = numpy.arange(len(data))                 if type(positions)      is type(None) else positions
+    data_std                    = misc.get_empty_list(len(data))          if type(data_std)       is type(None) else data_std
+    #data_control               = misc.get_empty_list(len(data))          if type(data_control)   is type(None) else data_control
+    barplotargs                 = dict()                                  if type(barplotargs)    is type(None) else barplotargs
+    annotationargs              = dict()                                  if type(annotationargs) is type(None) else annotationargs
+    errorbarargs                = dict()                                  if type(errorbarargs)   is type(None) else errorbarargs
+    barplotargs                 = misc.set_default_kwargs(barplotargs, width=0.2, color=colors)#, boxprops=dict(), medianprops=dict(), whiskerprops=dict())
+    #barplotargs['boxprops']     = misc.set_default_kwargs(barplotargs['boxprops']    ,linewidth=0.5,alpha=0.2)
+    #barplotargs['medianprops']  = misc.set_default_kwargs(barplotargs['medianprops'] ,linewidth=3,color='k')
+    #barplotargs['whiskerprops'] = misc.set_default_kwargs(barplotargs['whiskerprops'],color=(0,0,0,0))
+    errorbarargs                = misc.set_default_kwargs(errorbarargs,fmt='o',linewidth=3)
+    #data_labels_fake = [ k for k in positions ]
+    #color_palette    = { lab:cc for lab,cc in zip(data_labels_fake,colors) }
+    #dfs = [ _get_dataframe_for_boxplot(lab,x,None) for x,lab in zip(data,data_labels_fake) ] #for x,lab,x_control in zip(data,labels,data_control)
+    #dfm = dfs[0].append(dfs[1:])
+    #ax = seaborn.boxplot(x='label', y='value', data=dfm, palette=color_palette, **boxplotargs) 
+    data_mean = numpy.array([ misc.nanmean(dd) for dd in data ])
+    bplot     = ax.bar(positions, data_mean, label=labels, **barplotargs) 
+    #for k,(box_patch,c) in enumerate(zip(bplot['boxes'],colors)):
+    #    box_patch.set_facecolor(c)
+    ax.set_xlim((misc.nanmin(positions),misc.nanmax(positions)))
+    ax.set_xticks(ticks=positions,labels=labels)
+    #ax = seaborn.boxplot(x='label', y='value', hue='is_control', data=dfm, **boxplotargs)# works for data_control, but I dont know how to change colors
+    #ax = seaborn.boxplot(x='is_control', y='value', hue='label', data=dfm, palette=color_palette, **boxplotargs)
+    get_data_std = lambda k,dd: data_std[k] if not(type(data_std[k]) is type(None)) else misc.nanstd(dd)
+    for k,(p,dd) in enumerate(zip(positions,data)):
+        args = misc.set_default_kwargs(errorbarargs,color=colors[k])
+        ax.errorbar(p, misc.nanmean(dd), yerr=get_data_std(k,dd), **args)
+    if misc.exists(significance):
+        if len(significance) > 0:
+            mm = misc.nanmax(misc.asarray_nanfill(data).flatten())
+            for i,ind in enumerate(significance):
+                for j in numpy.nonzero(ind)[0]:
+                    args = misc.set_default_kwargs(annotationargs,data_max=mm,is_log_scale=is_log_scale,color=colors[i],x1_plot_coord=positions[i],x2_plot_coord=positions[j])
+                    mm   = _annotate_boxplot(ax,i,j,data,**args)
+    return ax
+
+
+
+def plot_boxplot(ax,data,labels,colors=None,significance=None,data_std=None,is_log_scale=False,boxplotargs=None,errorbarargs=None,positions=None,annotationargs=None):
+    """
+    data         -> a list of variables (each element contains all the data points used to calculate the average of that element, etc )
+    colors       -> list of colors for each entry in data
+    labels       -> list of labels for each entry in data
+    significance -> a matrix of significance: each entry is a list of 0 and 1 (for significant) for the corresponding data variable versus the other data variables
+    data_std     -> a list of std for each data variable (if not given, this will be automatically calculated)
+    data_control -> a list of control variables for each variable in data (not necessary, it can contain empty (or None) entries meaning that data variable has no control)
+    is_log_scale -> if True, significance asterisks are adjusted for log-scale y-axis plots
+    boxplotargs  -> arguments passed down to the seaborn.boxplot function (and further down to matplotlib.pyplot.boxplot)
+    errorbarargs -> arguments passed down to the maxplotlib.pyplot.errorbar function that plots stddev
+
+    https://www.python-graph-gallery.com/30-basic-boxplot-with-seaborn
+    https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.boxplot.html
+    https://seaborn.pydata.org/generated/seaborn.boxplot.html
+    """
+    #N = len(data)
+    colors                      = get_tab10_colors(len(data))             if type(colors)         is type(None) else colors
+    positions                   = numpy.arange(len(data))                 if type(positions)      is type(None) else positions
+    data_std                    = misc.get_empty_list(len(data))          if type(data_std)       is type(None) else data_std
+    #data_control               = misc.get_empty_list(len(data))          if type(data_control)   is type(None) else data_control
+    boxplotargs                 = dict()                                  if type(boxplotargs)    is type(None) else boxplotargs
+    annotationargs              = dict()                                  if type(annotationargs) is type(None) else annotationargs
+    errorbarargs                = dict()                                  if type(errorbarargs)   is type(None) else errorbarargs
     boxplotargs                 = misc.set_default_kwargs(boxplotargs, patch_artist=True, vert=True, widths=0.2, meanline=True, showmeans=False, notch=False, boxprops=dict(), medianprops=dict(), whiskerprops=dict(), showcaps=False)
     boxplotargs['boxprops']     = misc.set_default_kwargs(boxplotargs['boxprops']    ,linewidth=0.5,alpha=0.2)
     boxplotargs['medianprops']  = misc.set_default_kwargs(boxplotargs['medianprops'] ,linewidth=3,color='k')
@@ -211,7 +269,8 @@ def plot_boxplot(ax,data,labels,colors=None,significance=None,data_std=None,is_l
             mm = misc.nanmax(misc.asarray_nanfill(data).flatten())
             for i,ind in enumerate(significance):
                 for j in numpy.nonzero(ind)[0]:
-                    mm = _annotate_boxplot(ax,i,j,data,data_max=mm,is_log_scale=is_log_scale,color=colors[i],x1_plot_coord=positions[i],x2_plot_coord=positions[j])
+                    args = misc.set_default_kwargs(annotationargs,data_max=mm,is_log_scale=is_log_scale,color=colors[i],x1_plot_coord=positions[i],x2_plot_coord=positions[j])
+                    mm   = _annotate_boxplot(ax,i,j,data,**args)
     return ax
 
 def _get_dataframe_for_boxplot(label,x,x_control):
@@ -222,7 +281,28 @@ def _get_dataframe_for_boxplot(label,x,x_control):
         is_control = numpy.append(is_control,numpy.ones(numpy.asarray(x_control).size,dtype=int))
     return pandas.DataFrame(dict(label=numpy.repeat(label,values.size), value=values))#, is_control=is_control))
 
-def plot_scatter(ax,X_rt,Y_rt,X_ft,Y_ft,linreg_rt=None,linreg_ft=None,ind=None,use_log_for_linreg=False,red_colors=None,green_colors=None,X_err_rt=None,Y_err_rt=None,X_err_ft=None,Y_err_ft=None,linreg_func_internal=None,pSymbols_rt=None,pSymbols_ft=None,markersize_rt=None,markersize_ft=None,errorbarArgs_rt=None,errorbarArgs_ft=None,show_connecting_lines=False,connLines_args=None,markerfacecolor_alpha=1.0,color_regression_rt=None,color_regression_ft=None):
+def plot_scatter(ax,X_rt,Y_rt,X_ft,Y_ft,linreg_rt              = None  ,
+                                        linreg_ft              = None  ,
+                                        ind                    = None  ,
+                                        use_log_for_linreg     = False ,
+                                        red_colors             = None  ,
+                                        green_colors           = None  ,
+                                        X_err_rt               = None  ,
+                                        Y_err_rt               = None  ,
+                                        X_err_ft               = None  ,
+                                        Y_err_ft               = None  ,
+                                        linreg_func_internal   = None  ,
+                                        pSymbols_rt            = None  ,
+                                        pSymbols_ft            = None  ,
+                                        markersize_rt          = None  ,
+                                        markersize_ft          = None  ,
+                                        errorbarArgs_rt        = None  ,
+                                        errorbarArgs_ft        = None  ,
+                                        show_connecting_lines  = False ,
+                                        connLines_args         = None  ,
+                                        markerfacecolor_alpha  = 1.0   ,
+                                        color_regression_rt    = None  ,
+                                        color_regression_ft    = None  ):
     n = X_rt.shape[0]
     get_if_not_none = lambda x,k: None if type(x) is type(None) else x[k,:]
     linreg_func = lambda x,linreg: linreg.intercept + linreg.slope * x
@@ -256,14 +336,14 @@ def plot_scatter(ax,X_rt,Y_rt,X_ft,Y_ft,linreg_rt=None,linreg_ft=None,ind=None,u
         label_flag = get_label_flag(k) #('' if k == ind[-1] else '_') if type(linreg_rt) is type(None) else '_'
         args_rt = misc.set_default_kwargs(errorbarArgs_rt,color=green_colors[k],marker=get_k(k,pSymbols_rt),
                                           markersize=get_k(k,markersize_rt),linestyle='none',
-                                          markerfacecolor=list(green_colors[k])+[markerfacecolor_alpha],
+                                          markerfacecolor=add_alpha_to_colorarray(green_colors[k],markerfacecolor_alpha),#list(green_colors[k])+[markerfacecolor_alpha]
                                           label=label_flag+'Static entrance')
         ax.errorbar(X_rt[k,:],Y_rt[k,:],xerr=get_if_not_none(X_err_rt,k),yerr=get_if_not_none(Y_err_rt,k),**args_rt)
     for k in ind:
         label_flag = get_label_flag(k) #('' if k == ind[-1] else '_') if type(linreg_rt) is type(None) else '_'
         args_ft = misc.set_default_kwargs(errorbarArgs_ft,color=  red_colors[k],marker=get_k(k,pSymbols_ft),
                                           markersize=get_k(k,markersize_ft),linestyle='none',
-                                          markerfacecolor=list(red_colors[k])+[markerfacecolor_alpha],
+                                          markerfacecolor=add_alpha_to_colorarray(red_colors[k],markerfacecolor_alpha),#list(red_colors[k])+[markerfacecolor_alpha],
                                           label=label_flag+'Random entrance')
         ax.errorbar(X_ft[k,:],Y_ft[k,:],xerr=get_if_not_none(X_err_ft,k),yerr=get_if_not_none(Y_err_ft,k),**args_ft)
     if (type(linreg_rt) is type(None)) and (type(linreg_ft) is type(None)):
@@ -314,7 +394,7 @@ def get_gradient(N=None,color='red',cmap_name=None):
     else:
         if type(color) is str:
             color = color.lower()
-            color_str_options = ['red','green','blue','blue2','yellow','purple','orange']
+            color_str_options = ['red','green','blue','blue2','yellow','purple','purple2','orange']
             if (color in color_str_options):
                 if color == 'red':
                     c = numpy.array([[244,138,140],[133,27,30]],dtype=float)/255.0
@@ -328,9 +408,12 @@ def get_gradient(N=None,color='red',cmap_name=None):
                     c = numpy.array([[234,221,121],[140,128,36]],dtype=float)/255.0
                 elif color == 'purple':
                     c = numpy.array([[227,168,247],[92,4,124]],dtype=float)/255.0
+                elif color == 'purple2':
+                    c = numpy.array([[239,215,242],[178,29,200]],dtype=float)/255.0
                 elif color == 'orange':
                     c = numpy.array([[247, 183, 106],[117, 78, 31]],dtype=float)/255.0
-                f = scipy.interpolate.interp1d(numpy.arange(2).astype(float),c,kind='linear',axis=0,copy=False)
+                args = dict(N=N) if misc.exists(N) else dict()
+                f = matplotlib.colors.LinearSegmentedColormap.from_list("",c,**args)#scipy.interpolate.interp1d(numpy.arange(2).astype(float),c,kind='linear',axis=0,copy=False)
             else:
                 warnings.warn('Assuming color is a matplotlib colormap')
                 try:
@@ -611,7 +694,7 @@ def plot_arena_sketch(track,showAllEntrances=False,arenaPicture=False,ax=None,sh
                     otherwise, arenaPicture maybe the result of imread (a numpy array with the pixels of the arena to be plotted with imshow)
     """
     fig_w,fig_h = 8,6
-    arena_wh = track.arena_picture_wh if has_arena_pic_to_plot(arenaPicture) else [640,480] #get_arena_picture_file_width_height()
+    arena_wh = track.arena_picture_wh #get_arena_picture_file_width_height()
     ax_w = 1.2
     ax_hw_ratio = arena_wh[1] / arena_wh[0] # h and w of the arena_picture
     ax_h = ax_w * ax_hw_ratio
@@ -944,6 +1027,22 @@ def draw_ellipse(r_center,axes_direction,semi_axis_length,ax=None,show_center=Fa
         plot_point(r_center,ax=ax,pointArgs=center_args)
     return ellipse
 
+
+def add_alpha_to_colorarray(c,alpha=1.0):
+    if not misc._is_numpy_array(c):
+        c = numpy.asarray(c)
+    c = copy.deepcopy(c)
+    if c.ndim == 1:
+        if (c.size < 4):
+            c    = numpy.append(c,alpha) 
+        else:
+            c[3] = alpha
+    else:
+        if c.shape[1] < 4:
+            c      = numpy.column_stack((c,alpha*numpy.ones(c.shape[0])))
+        else:
+            c[:,3] = alpha*numpy.ones(c.shape[0])
+    return c
 
 def plot_point(r,label='',fmt='o', color='k', markersize=6, ax=None, pointArgs=None, verbose=True, **textArgs):
     if not misc.exists(ax):

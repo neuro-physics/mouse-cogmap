@@ -439,7 +439,7 @@ def _pick_latest_target(track,hole_horizon=None):
         tind_inter = tran.find_first_intersection_index(track.r_nose,all_targets,time=track.time,hole_horizon=hole_horizon)
     return all_targets[numpy.argmax(tind_inter)]
 
-def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target=None,stop_at_food=False,track=None,return_arena_lattice_geometry=False):
+def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target=None,stop_at_food=False,track=None,return_arena_lattice_geometry=False,count_time_spent_instead_of_steps=False):
     """
     this function overlays a lattice of size LxL over the arena (centered at the center of the arena)
     then it counts the number of times the trajectory in r crossed from site j to site i of the lattice,
@@ -449,23 +449,27 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
 
     all input vectors are given in arena coordinates
 
-    t_points     -> T-by-1 vector with time points
-    r            -> T-by-2 matrix of trajectory points (r[t,:] -> coords of the mouse at time t)
-    L_lattice    -> number of squares on each side (x,y) of the square lattice (an odd scalar)
-    r_center     -> (x,y) coord of the center of the arena
-    r_target     -> (x,y) position of the target (in arena coords)
-    stop_at_food -> if stop at food is set, then the step couting stops in the first passsage
-                    of the mouse through the food site (i.e., r_target)
+    t_points                          -> T-by-1 vector with time points
+    r                                 -> T-by-2 matrix of trajectory points (r[t,:] -> coords of the mouse at time t)
+    L_lattice                         -> number of squares on each side (x,y) of the square lattice (an odd scalar)
+    r_center                          -> (x,y) coord of the center of the arena
+    r_target                          -> (x,y) position of the target (in arena coords)
+    stop_at_food                      -> if stop at food is set, then the step couting stops in the first passsage
+                                         of the mouse through the food site (i.e., r_target)
+    track                             -> uses arena center from track instead of r_center
+    return_arena_lattice_geometry     -> if true, returns a structtype containing some arena geometry parameters
+    count_time_spent_instead_of_steps -> if true, the grid matrix G contains the time spent (in time step units) in each square
 
     returns
-        N         -> (L_lattice**2 by L_lattice**2)
-                     number of steps matrix for the square lattice, where N[i,j] is the number of steps the mouse took from site j to site i
-                     the site indices i and j are computed by m+n*L  [[ where m is the row index and n is the column index of the square lattice grid ]]
-        G         -> (L_lattice by L_lattice) 
-                     the actual grid of the square lattice with rows m and columns n, such that
-                     G[m,n] = number of times the mouse entered that square
-        r_latt    -> (x,y) position of the mouse on the lattice coords
-        t_to_food -> number of time steps the mouse took to get the closest to the food
+        N              -> (L_lattice**2 by L_lattice**2)
+                          number of steps matrix for the square lattice, where N[i,j] is the number of steps the mouse took from site j to site i
+                          the site indices i and j are computed by m+n*L  [[ where m is the row index and n is the column index of the square lattice grid ]]
+        G              -> (L_lattice by L_lattice) 
+                          the actual grid of the square lattice with rows m and columns n, such that
+                          G[m,n] = number of times the mouse entered that square
+        r_latt         -> (x,y) position of the mouse on the lattice coords
+        t_to_food      -> number of time steps the mouse took to get the closest to the food
+        arena_geometry -> misc.structtype(r_center,arena_radius,lattice_extent)
     """
     if L_lattice % 2 == 0:
         raise ValueError('L_lattice must be an odd scalar number')
@@ -542,6 +546,9 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
     tTotal = r_latt.shape[0]
     while t < tTotal:
         if is_same_square( r_latt[t,:], r_latt[t-1,:] ):
+            if count_time_spent_instead_of_steps:
+                x,y     = r_latt[t,:].astype(int) #get_row_col(r_latt[t,:])
+                G[y,x] += 1.0
             # if we didn't change squares in this time step
             t+=1 # we simply continue to check the next
             continue
@@ -587,7 +594,8 @@ def count_number_of_steps_in_lattice(t_points,r,L_lattice,r_center=None,r_target
         i,j = get_linear_ind(y,x),get_linear_ind(y0,x0)
         
         # counting one for a visit in this square
-        G[y,x] += 1.0
+        if not count_time_spent_instead_of_steps:
+            G[y,x] += 1.0
 
         # counting 1 for a step from site j to site i
         N[i,j] += 1.0
