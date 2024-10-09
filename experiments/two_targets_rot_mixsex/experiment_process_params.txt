@@ -1,0 +1,7 @@
+# trial_dir=D:\Dropbox\p\uottawa\data\animal_trajectories\mouse_track\../EthovisionPathAnalysis/Raw Trial Data/2022-10-11_Raw Trial Data
+# out_dir=D:\Dropbox\p\uottawa\data\animal_trajectories\mouse_track\experiments/two_targets_rot_mixsex
+# trials_to_process=all
+# replacement_dict={}
+# correct_distortion=True
+# mouse_gender={1: 'F', 6: 'F', 8: 'F'}
+# correct_arena_center=True

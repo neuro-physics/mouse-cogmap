@@ -1,0 +1,7 @@
+# trial_dir=D:\Dropbox\p\uottawa\data\animal_trajectories\mouse_track\../EthovisionPathAnalysis/Raw Trial Data/2022-08-12_Raw Trial Data
+# out_dir=D:\Dropbox\p\uottawa\data\animal_trajectories\mouse_track\experiments/two_targets_rot
+# trials_to_process=all
+# replacement_dict={}
+# correct_distortion=True
+# mouse_gender={}
+# correct_arena_center=True
