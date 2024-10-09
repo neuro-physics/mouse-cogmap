@@ -2,7 +2,7 @@
 
 This repository was developed for the analysis of the data generated during the making of the following paper (please cite when using any tools derived from this repository):
 
-- [ J. Xu, M. Girardi-Schappo, J.-C. Béïque, A. Longtin, L. Maler (2024): _Shortcutting from self-motion signals: quantifying trajectories and active sensing in an open maze_ **eLife 13**: RP95764](https://elifesciences.org/reviewed-preprints/95764)
+- [ J. Xu, M. Girardi-Schappo, J.-C. Béïque, A. Longtin, L. Maler (2024): _Shortcutting from self-motion signals: quantifying trajectories and active sensing in an open maze_ **eLife 13**: RP95764](https://doi.org/10.7554/eLife.95764.2)
 
 # Definitions
 
